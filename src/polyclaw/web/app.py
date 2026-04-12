@@ -254,6 +254,71 @@ def reset_portfolio():
     return jsonify({"message": "Paper trading reset", "balance": settings.paper_starting_balance})
 
 
+@app.route("/api/strategy/opportunities")
+def strategy_opportunities():
+    try:
+        from polyclaw.web.strategy_service import get_scored_opportunities
+
+        picks = get_scored_opportunities()
+        return jsonify({"items": picks, "count": len(picks)})
+    except Exception as exc:
+        logger.exception("Failed to get scored opportunities")
+        return jsonify({"error": str(exc)}), 503
+
+
+@app.route("/api/strategy/opportunities/<market_id>/bet", methods=["POST"])
+def strategy_bet(market_id: str):
+    from polyclaw.trading.models import Side, TradeOrder, TradeOrderType
+
+    req = request.json or {}
+    side_str = req.get("side", "YES").upper()
+    size = float(req.get("size", 100))
+
+    # Resolve token_id via the dashboard service opportunity list
+    dashboard = get_dashboard_service()
+    try:
+        items = dashboard._load_opportunities()
+    except Exception:
+        items = (dashboard.opportunities_cache.value or [])
+
+    opp = next((o for o in items if o["id"] == market_id), None)
+
+    if not opp:
+        detail = dashboard.get_opportunity_detail(market_id)
+        if detail:
+            opp = detail
+
+    if not opp:
+        return jsonify({"error": f"Market {market_id} not found in current feed"}), 404
+
+    token_ids = opp.get("tokenIds", {})
+    token_id = token_ids.get(side_str)
+    if not token_id:
+        return jsonify({"error": f"No {side_str} token available for this market"}), 400
+
+    order = TradeOrder(
+        token_id=token_id,
+        market_id=market_id,
+        market_question=opp.get("question", ""),
+        outcome=side_str,
+        side=Side.BUY,
+        order_type=TradeOrderType.MARKET,
+        size=size,
+    )
+    result = get_trader().place_order(order)
+    get_dashboard_service().invalidate_paper_state()
+    return jsonify(
+        {
+            "order_id": result.order_id,
+            "status": result.status.value,
+            "filled_price": result.filled_price,
+            "filled_size": result.filled_size,
+            "total_cost": result.total_cost,
+            "message": result.message,
+        }
+    )
+
+
 @app.route("/<path:full_path>")
 def frontend_routes(full_path: str):
     """Serve the compiled React frontend for non-API routes."""

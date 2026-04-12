@@ -1,7 +1,6 @@
 import { useDeferredValue, useState } from 'react'
 
 import { ConfirmationModal } from '../components/ConfirmationModal'
-import { Panel } from '../components/Panel'
 import { StatusPill } from '../components/StatusPill'
 import { formatCurrency, formatPercent, formatRelativeTime, formatSignedCurrency } from '../lib/format'
 import type { Position, SessionUser } from '../lib/types'
@@ -20,7 +19,7 @@ interface PositionsPageProps {
 
 export function PositionsPage({
   positions,
-  sessionUser,
+  sessionUser: _sessionUser,
   actionBlockedReason,
   pausedCategories,
   onClosePosition,
@@ -29,270 +28,223 @@ export function PositionsPage({
   onPauseCategory,
   onAddNote,
 }: PositionsPageProps) {
-  const [selectedPositionId, setSelectedPositionId] = useState(positions[0]?.id ?? '')
   const [search, setSearch] = useState('')
-  const [adjustmentAmount, setAdjustmentAmount] = useState(1000)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [adjustmentAmount, setAdjustmentAmount] = useState(100)
   const [noteDraft, setNoteDraft] = useState('')
-  const [modalAction, setModalAction] = useState<'close' | 'increase' | 'reduce' | null>(null)
+  const [modalAction, setModalAction] = useState<{ type: 'close' | 'increase' | 'reduce'; positionId: string } | null>(null)
   const deferredSearch = useDeferredValue(search)
 
-  const filtered = positions.filter((position) => {
-    const query = deferredSearch.trim().toLowerCase()
-    if (!query) {
-      return true
-    }
-
-    return (
-      position.question.toLowerCase().includes(query) ||
-      position.category.toLowerCase().includes(query) ||
-      position.status.toLowerCase().includes(query)
-    )
+  const filtered = positions.filter((p) => {
+    const q = deferredSearch.trim().toLowerCase()
+    return !q || p.question.toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
   })
 
-  const selectedPosition = filtered.find((position) => position.id === selectedPositionId) ?? filtered[0] ?? null
-  const categoryPaused = selectedPosition ? pausedCategories.includes(selectedPosition.category) : false
-
-  function confirmAction() {
-    if (!selectedPosition) {
-      return
-    }
-
-    if (modalAction === 'close') {
-      onClosePosition(selectedPosition.id)
-    }
-
-    if (modalAction === 'increase') {
-      onResizePosition(selectedPosition.id, 'increase', adjustmentAmount)
-    }
-
-    if (modalAction === 'reduce') {
-      onResizePosition(selectedPosition.id, 'reduce', adjustmentAmount)
-    }
-
-    setModalAction(null)
-  }
+  const expandedPosition = expandedId ? filtered.find((p) => p.id === expandedId) ?? null : null
 
   function submitNote() {
-    if (!selectedPosition || !noteDraft.trim()) {
-      return
-    }
-
-    onAddNote(selectedPosition.id, noteDraft.trim())
+    if (!expandedPosition || !noteDraft.trim()) return
+    onAddNote(expandedPosition.id, noteDraft.trim())
     setNoteDraft('')
+  }
+
+  function confirmAction() {
+    if (!modalAction) return
+    const { type, positionId } = modalAction
+    if (type === 'close') onClosePosition(positionId)
+    if (type === 'increase') onResizePosition(positionId, 'increase', adjustmentAmount)
+    if (type === 'reduce') onResizePosition(positionId, 'reduce', adjustmentAmount)
+    setModalAction(null)
   }
 
   return (
     <>
-      <div className="page-stack">
-        <div className="hero-strip">
+      <div className="opp-page">
+        <div className="opp-page__header">
           <div>
-            <p className="eyebrow">Positions</p>
-            <h1>Monitor paper-backed bets, update sizing, and manage category risk</h1>
-            <p className="muted">
-              Phase 1 keeps the current book paper-backed while live holdings remain unavailable. You can still resize,
-              close, review, and pause categories from here.
-            </p>
+            <h1 className="opp-page__title">Positions</h1>
+            <p className="opp-page__subtitle muted">{positions.length} open paper position{positions.length !== 1 ? 's' : ''}</p>
           </div>
+          <input
+            className="pos-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search markets…"
+          />
         </div>
 
-        <section className="page-with-drawer">
-          <div className="page-with-drawer__main">
-            <Panel title="Open paper positions" subtitle="Current paper-backed exposure and mark-to-market">
-              <div className="filter-bar">
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search market or category"
-                />
-              </div>
-              <div className="table-shell">
-                <table className="clickable-table">
-                  <thead>
-                    <tr>
-                      <th>Market</th>
-                      <th>Category</th>
-                      <th>Status</th>
-                      <th>Exposure</th>
-                      <th>Liquidation</th>
-                      <th>Unrealized</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((position) => (
-                      <tr
-                        key={position.id}
-                        className={selectedPosition?.id === position.id ? 'is-selected' : ''}
-                        onClick={() => setSelectedPositionId(position.id)}
-                      >
-                        <td>{position.question}</td>
-                        <td>{position.category}</td>
-                        <td>{position.status}</td>
-                        <td>{formatCurrency(position.stake)}</td>
-                        <td>{formatCurrency(position.liquidationValue)}</td>
-                        <td>{formatSignedCurrency(position.unrealizedPnl)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Panel>
+        {actionBlockedReason ? (
+          <div className="opp-blocked-banner">
+            <span>⚠ Trading blocked:</span> {actionBlockedReason}
           </div>
+        ) : null}
 
-          <aside className="page-with-drawer__drawer">
-            {selectedPosition ? (
-              <div className="drawer-stack">
-                <Panel title="Position detail" subtitle={selectedPosition.question}>
-                  <div className="detail-grid">
-                    <article className="metric-card">
-                      <p className="metric-card__label">Exposure</p>
-                      <strong>{formatCurrency(selectedPosition.stake)}</strong>
-                      <span>{formatCurrency(selectedPosition.liquidationValue)} liquidation value</span>
-                    </article>
-                    <article className="metric-card">
-                      <p className="metric-card__label">Unrealized PnL</p>
-                      <strong>{formatSignedCurrency(selectedPosition.unrealizedPnl)}</strong>
-                      <span>{selectedPosition.shares.toFixed(0)} shares</span>
-                    </article>
-                    <article className="metric-card">
-                      <p className="metric-card__label">Entry vs mark</p>
-                      <strong>
-                        {formatPercent(selectedPosition.entryPrice)} / {formatPercent(selectedPosition.currentPrice)}
-                      </strong>
-                      <span>Updated {formatRelativeTime(selectedPosition.updatedAt)}</span>
-                    </article>
-                  </div>
+        {filtered.length === 0 ? (
+          <p className="muted" style={{ padding: '2rem 0' }}>No open positions yet. Place a paper bet from Opportunities.</p>
+        ) : (
+          <div className="pos-list">
+            {filtered.map((position) => {
+              const isExpanded = expandedId === position.id
+              const pnlPositive = position.unrealizedPnl >= 0
+              const catPaused = pausedCategories.includes(position.category)
 
-                  <div className="pill-row">
-                    <StatusPill tone="info">{selectedPosition.category}</StatusPill>
-                    <StatusPill tone="neutral">{selectedPosition.marketType}</StatusPill>
-                    <StatusPill tone={selectedPosition.unrealizedPnl >= 0 ? 'positive' : 'critical'}>
-                      {selectedPosition.side}
-                    </StatusPill>
-                    {categoryPaused ? <StatusPill tone="warning">Category paused</StatusPill> : null}
-                  </div>
-
-                  <div className="copy-block">
-                    <p className="copy-block__label">Thesis at entry</p>
-                    <p>{selectedPosition.thesisAtEntry}</p>
-                  </div>
-                  <div className="copy-block">
-                    <p className="copy-block__label">Current model view</p>
-                    <p>{selectedPosition.modelView}</p>
-                  </div>
-                  <div className="copy-block">
-                    <p className="copy-block__label">Exit guidance</p>
-                    <p>{selectedPosition.exitGuidance}</p>
-                  </div>
-
-                  {actionBlockedReason ? (
-                    <article className="alert-card alert-card--critical">
-                      <div>
-                        <p className="alert-card__title">Paper execution blocked</p>
-                        <p className="muted">{actionBlockedReason}</p>
-                      </div>
-                    </article>
-                  ) : null}
-
-                  <label>
-                    Adjustment amount
-                    <input
-                      type="number"
-                      min={100}
-                      step={100}
-                      value={adjustmentAmount}
-                      onChange={(event) => setAdjustmentAmount(Number(event.target.value))}
-                    />
-                  </label>
-
-                  <div className="action-row">
-                    <button
-                      className="button button--ghost"
-                      type="button"
-                      onClick={() => setModalAction('increase')}
-                      disabled={Boolean(actionBlockedReason)}
-                    >
-                      Increase size
-                    </button>
-                    <button
-                      className="button button--ghost"
-                      type="button"
-                      onClick={() => setModalAction('reduce')}
-                      disabled={Boolean(actionBlockedReason)}
-                    >
-                      Reduce size
-                    </button>
-                    <button
-                      className="button button--danger"
-                      type="button"
-                      onClick={() => setModalAction('close')}
-                      disabled={Boolean(actionBlockedReason)}
-                    >
-                      Close paper position
-                    </button>
-                  </div>
-
-                  <div className="action-row">
-                    <button className="button button--ghost" type="button" onClick={() => onMarkReview(selectedPosition.id)}>
-                      Mark for review
-                    </button>
-                    <button className="button button--ghost" type="button" onClick={() => onPauseCategory(selectedPosition.category)}>
-                      Pause similar markets
-                    </button>
-                  </div>
-                </Panel>
-
-                <Panel title="Position notes" subtitle={`Desk notes by ${sessionUser.name}`}>
-                  <div className="note-stack">
-                    {selectedPosition.notes.map((item) => (
-                      <article key={item.id} className="note-card">
-                        <div className="note-card__header">
-                          <strong>{item.author}</strong>
-                          <span>{formatRelativeTime(item.createdAt)}</span>
-                        </div>
-                        <p>{item.text}</p>
-                      </article>
-                    ))}
-                  </div>
-                  <label>
-                    Add note
-                    <textarea
-                      value={noteDraft}
-                      onChange={(event) => setNoteDraft(event.target.value)}
-                      placeholder="Capture follow-up actions, exit notes, or size decisions."
-                    />
-                  </label>
-                  <button className="button button--ghost" type="button" onClick={submitNote}>
-                    Save note
+              return (
+                <article key={position.id} className={`pos-card ${isExpanded ? 'pos-card--expanded' : ''}`}>
+                  <button
+                    className="pos-card__summary"
+                    type="button"
+                    onClick={() => setExpandedId(isExpanded ? null : position.id)}
+                  >
+                    <div className="pos-card__question">{position.question}</div>
+                    <div className="pos-card__pills">
+                      <StatusPill tone="info">{position.category}</StatusPill>
+                      <StatusPill tone={pnlPositive ? 'positive' : 'critical'}>{position.side}</StatusPill>
+                      {catPaused ? <StatusPill tone="warning">Paused</StatusPill> : null}
+                      {position.status === 'review' ? <StatusPill tone="warning">Review</StatusPill> : null}
+                    </div>
+                    <div className="pos-card__kpis">
+                      <span>
+                        <span className="muted">Exposure </span>
+                        {formatCurrency(position.stake)}
+                      </span>
+                      <span>
+                        <span className="muted">PnL </span>
+                        <span style={{ color: pnlPositive ? '#8bd8be' : '#ffb3ab' }}>
+                          {formatSignedCurrency(position.unrealizedPnl)}
+                        </span>
+                      </span>
+                      <span>
+                        <span className="muted">Mark </span>
+                        {formatPercent(position.currentPrice)}
+                      </span>
+                    </div>
+                    <span className="pos-card__chevron">{isExpanded ? '▲' : '▼'}</span>
                   </button>
-                </Panel>
-              </div>
-            ) : (
-              <Panel title="Position detail" subtitle="Select a paper-backed position to inspect it">
-                <p className="muted">No current positions match the search.</p>
-              </Panel>
-            )}
-          </aside>
-        </section>
+
+                  {isExpanded ? (
+                    <div className="pos-card__detail">
+                      <div className="pos-detail-grid">
+                        <div>
+                          <p className="muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Entry / Mark</p>
+                          <strong>{formatPercent(position.entryPrice)} / {formatPercent(position.currentPrice)}</strong>
+                          <p className="muted" style={{ fontSize: '0.8rem' }}>Updated {formatRelativeTime(position.updatedAt)}</p>
+                        </div>
+                        <div>
+                          <p className="muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Shares</p>
+                          <strong>{position.shares.toFixed(0)}</strong>
+                          <p className="muted" style={{ fontSize: '0.8rem' }}>Liq value {formatCurrency(position.liquidationValue)}</p>
+                        </div>
+                      </div>
+
+                      <div className="pos-copy-block">
+                        <p className="muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Thesis at entry</p>
+                        <p>{position.thesisAtEntry}</p>
+                      </div>
+
+                      {actionBlockedReason ? null : (
+                        <div className="pos-actions">
+                          <label className="pos-adj-label">
+                            Adj. amount ($)
+                            <input
+                              type="number"
+                              min={50}
+                              step={50}
+                              value={adjustmentAmount}
+                              onChange={(e) => setAdjustmentAmount(Number(e.target.value))}
+                            />
+                          </label>
+                          <div className="action-row">
+                            <button
+                              className="button button--ghost"
+                              type="button"
+                              onClick={() => setModalAction({ type: 'increase', positionId: position.id })}
+                            >
+                              Increase
+                            </button>
+                            <button
+                              className="button button--ghost"
+                              type="button"
+                              onClick={() => setModalAction({ type: 'reduce', positionId: position.id })}
+                            >
+                              Reduce
+                            </button>
+                            <button
+                              className="button button--danger"
+                              type="button"
+                              onClick={() => setModalAction({ type: 'close', positionId: position.id })}
+                            >
+                              Close
+                            </button>
+                          </div>
+                          <div className="action-row">
+                            <button
+                              className="button button--ghost"
+                              type="button"
+                              onClick={() => onMarkReview(position.id)}
+                            >
+                              Flag for review
+                            </button>
+                            <button
+                              className="button button--ghost"
+                              type="button"
+                              onClick={() => onPauseCategory(position.category)}
+                              disabled={catPaused}
+                            >
+                              Pause {position.category}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {position.notes.length > 0 ? (
+                        <div className="pos-notes">
+                          {position.notes.map((note) => (
+                            <div key={note.id} className="pos-note">
+                              <span className="pos-note__author">{note.author}</span>
+                              <span className="muted" style={{ fontSize: '0.78rem' }}>{formatRelativeTime(note.createdAt)}</span>
+                              <p style={{ margin: '0.25rem 0 0' }}>{note.text}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <label style={{ fontSize: '0.85rem', color: 'var(--text-soft)' }}>
+                        Add note
+                        <textarea
+                          value={noteDraft}
+                          onChange={(e) => setNoteDraft(e.target.value)}
+                          placeholder="Exit notes, thesis update…"
+                          style={{ minHeight: '4rem' }}
+                        />
+                      </label>
+                      <button className="button button--ghost" type="button" onClick={submitNote} style={{ alignSelf: 'flex-start' }}>
+                        Save note
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <ConfirmationModal
         open={modalAction !== null}
         title={
-          modalAction === 'close'
+          modalAction?.type === 'close'
             ? 'Close this paper position?'
-            : modalAction === 'increase'
-              ? 'Increase this paper position?'
-              : 'Reduce this paper position?'
+            : modalAction?.type === 'increase'
+              ? 'Increase paper position?'
+              : 'Reduce paper position?'
         }
         description={
-          modalAction === 'close'
-            ? 'This sends a paper sell order to the backend to close the position.'
-            : modalAction === 'increase'
-              ? `Add ${formatCurrency(adjustmentAmount)} of paper notional exposure to this position.`
-              : `Reduce ${formatCurrency(adjustmentAmount)} of paper notional exposure from this position.`
+          modalAction?.type === 'close'
+            ? 'This sends a paper sell order to fully close the position.'
+            : `Change position size by ${formatCurrency(adjustmentAmount)}.`
         }
-        confirmLabel={modalAction === 'close' ? 'Confirm close' : 'Confirm change'}
-        confirmTone={modalAction === 'close' ? 'danger' : 'primary'}
+        confirmLabel={modalAction?.type === 'close' ? 'Confirm close' : 'Confirm'}
+        confirmTone={modalAction?.type === 'close' ? 'danger' : 'primary'}
         disabled={Boolean(actionBlockedReason)}
         onCancel={() => setModalAction(null)}
         onConfirm={confirmAction}

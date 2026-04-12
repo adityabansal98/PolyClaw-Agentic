@@ -7,7 +7,10 @@ interface ConfirmationModalProps {
   disabled?: boolean
   onCancel: () => void
   onConfirm: () => void
+  children?: React.ReactNode
 }
+
+import React from 'react'
 
 export function ConfirmationModal({
   open,
@@ -18,6 +21,7 @@ export function ConfirmationModal({
   disabled = false,
   onCancel,
   onConfirm,
+  children,
 }: ConfirmationModalProps) {
   if (!open) {
     return null
@@ -29,6 +33,7 @@ export function ConfirmationModal({
         <p className="eyebrow">Execution confirmation</p>
         <h2 id="confirmation-title">{title}</h2>
         <p className="modal-card__description">{description}</p>
+        {children}
         <div className="modal-card__actions">
           <button className="button button--ghost" type="button" onClick={onCancel}>
             Cancel

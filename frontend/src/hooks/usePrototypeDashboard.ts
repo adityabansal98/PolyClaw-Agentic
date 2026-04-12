@@ -12,6 +12,7 @@ import type {
   Position,
   PositionsPayload,
   ResearchAttachment,
+  ScoredOpportunity,
   SessionUser,
   TradePayload,
   UserAccount,
@@ -22,6 +23,7 @@ const OPPORTUNITIES_REFRESH_MS = 8000
 const OVERVIEW_REFRESH_MS = 12000
 const POSITIONS_REFRESH_MS = 12000
 const DETAIL_REFRESH_MS = 9000
+const STRATEGY_REFRESH_MS = 60000
 
 const USERS_KEY = 'polyclaw.users'
 const SESSION_KEY = 'polyclaw.session'
@@ -249,6 +251,8 @@ export function usePrototypeDashboard() {
   const [overview, setOverview] = useState<OverviewPayload>(emptyOverview)
   const [remoteOpportunities, setRemoteOpportunities] = useState<Opportunity[]>([])
   const [remotePositions, setRemotePositions] = useState<Position[]>([])
+  const [scoredOpportunities, setScoredOpportunities] = useState<ScoredOpportunity[]>([])
+  const [scoredLoading, setScoredLoading] = useState(false)
   const [opportunityDetails, setOpportunityDetails] = useState<Record<string, Opportunity>>({})
   const [orderbooks, setOrderbooks] = useState<Record<string, OrderbookSnapshot>>({})
 
@@ -340,6 +344,44 @@ export function usePrototypeDashboard() {
     }
   }
 
+  async function refreshStrategy() {
+    setScoredLoading(true)
+    try {
+      const payload = await requestJson<{ items: ScoredOpportunity[] }>('/api/strategy/opportunities')
+      startTransition(() => {
+        setScoredOpportunities(payload.items)
+      })
+    } catch (error) {
+      appendLog(
+        error instanceof Error ? error.message : 'Failed to refresh strategy opportunities.',
+        'strategy-refresh',
+        'error',
+      )
+    } finally {
+      setScoredLoading(false)
+    }
+  }
+
+  async function placeScoredBet(marketId: string, side: OpportunitySide, size: number) {
+    if (!sessionUser) return
+    try {
+      await requestJson(`/api/strategy/opportunities/${marketId}/bet`, {
+        method: 'POST',
+        body: JSON.stringify({ side, size }),
+      })
+      appendLog(`Paper bet placed on scored pick ${marketId} (${side}, $${size}).`, 'strategy-bet', 'info', sessionUser.name)
+      await Promise.all([refreshOverview(), refreshPositions()])
+    } catch (error) {
+      appendLog(
+        error instanceof Error ? error.message : `Bet failed for ${marketId}.`,
+        'strategy-bet',
+        'error',
+        sessionUser.name,
+      )
+      throw error
+    }
+  }
+
   async function refreshAll() {
     await Promise.all([refreshOverview(), refreshOpportunities(), refreshPositions()])
   }
@@ -356,6 +398,10 @@ export function usePrototypeDashboard() {
     void refreshPositions()
   })
 
+  const pollStrategy = useEffectEvent(() => {
+    void refreshStrategy()
+  })
+
   const pollAll = useEffectEvent(() => {
     void refreshAll()
   })
@@ -366,6 +412,7 @@ export function usePrototypeDashboard() {
     }
 
     pollAll()
+    pollStrategy()
 
     const overviewTimer = window.setInterval(() => {
       pollOverview()
@@ -376,11 +423,15 @@ export function usePrototypeDashboard() {
     const positionsTimer = window.setInterval(() => {
       pollPositions()
     }, POSITIONS_REFRESH_MS)
+    const strategyTimer = window.setInterval(() => {
+      pollStrategy()
+    }, STRATEGY_REFRESH_MS)
 
     return () => {
       window.clearInterval(overviewTimer)
       window.clearInterval(opportunitiesTimer)
       window.clearInterval(positionsTimer)
+      window.clearInterval(strategyTimer)
     }
   }, [sessionUser])
 
@@ -854,6 +905,9 @@ export function usePrototypeDashboard() {
     createAccount,
     signOut,
     refreshAll,
+    scoredOpportunities,
+    scoredLoading,
+    placeScoredBet,
     liveSummary,
     paperSummary,
     opportunities,

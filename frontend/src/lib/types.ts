@@ -1,4 +1,4 @@
-export type NavSection = 'overview' | 'opportunities' | 'positions' | 'paper' | 'operations'
+export type NavSection = 'opportunities' | 'positions'
 export type ServiceStatus = 'healthy' | 'degraded' | 'down'
 export type Environment = 'live' | 'paper'
 export type OpportunityStage = 'new' | 'paper' | 'approved' | 'rejected' | 'executed'
@@ -256,6 +256,26 @@ export interface OrderbookSnapshot {
   bids: Array<{ price: number; size: number }>
   asks: Array<{ price: number; size: number }>
   error?: string
+}
+
+export interface ScoredOpportunity {
+  market_id: string
+  category: string
+  question: string
+  market_url: string | null
+  side: OpportunitySide
+  score: number
+  score_pct: number
+  edge_pct: number
+  confidence: number
+  confidence_pct: number
+  p_model_yes: number
+  p_market_yes: number
+  liquidity_score: number
+  spread_bps: number
+  rationale_tags: string[]
+  hours_to_resolution: number | null
+  ai_commentary: string | null
 }
 
 export interface TradePayload {
