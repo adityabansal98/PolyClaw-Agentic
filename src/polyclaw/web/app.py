@@ -1,8 +1,7 @@
-import json
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -18,7 +17,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="PolyClaw", version="0.1.0")
 
 STATIC_DIR = Path(__file__).parent / "static"
+FRONTEND_BUILD_DIR = STATIC_DIR / "app"
+FRONTEND_ASSETS_DIR = FRONTEND_BUILD_DIR / "assets"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/assets", StaticFiles(directory=str(FRONTEND_ASSETS_DIR), check_dir=False), name="assets")
 
 # Shared instances
 gamma = GammaClient()
@@ -32,14 +34,12 @@ trader = PaperTrader(
 
 @app.get("/")
 async def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    return FileResponse(str(_frontend_index_file()))
 
 
 @app.get("/api/markets")
 async def search_markets(q: str = "", limit: int = Query(default=20, le=100)):
     """Search active markets via Gamma API."""
-    import httpx
-
     params: dict = {"limit": limit, "active": True}
     if q:
         params["tag"] = q
@@ -163,3 +163,31 @@ async def reset_portfolio():
     """Reset paper trading."""
     trader.reset()
     return {"message": "Paper trading reset", "balance": settings.paper_starting_balance}
+
+
+@app.get("/{full_path:path}")
+async def frontend_routes(full_path: str):
+    """Serve the compiled React frontend for non-API routes."""
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API route not found")
+
+    if full_path.startswith("static/"):
+        raise HTTPException(status_code=404, detail="Static route not found")
+
+    requested = FRONTEND_BUILD_DIR / full_path
+    if full_path and requested.is_file():
+        return FileResponse(str(requested))
+
+    if "." in Path(full_path).name:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    return FileResponse(str(_frontend_index_file()))
+
+
+def _frontend_index_file() -> Path:
+    """Return the compiled dashboard when available, else the build hint page."""
+    built_index = FRONTEND_BUILD_DIR / "index.html"
+    if built_index.exists():
+        return built_index
+
+    return STATIC_DIR / "index.html"
