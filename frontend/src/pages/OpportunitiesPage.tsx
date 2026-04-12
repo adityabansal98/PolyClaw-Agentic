@@ -134,7 +134,7 @@ export function OpportunitiesPage({
                                 rel="noopener noreferrer"
                                 className="opp-card__ext-link"
                               >
-                                ->
+                                {'->'}
                               </a>
                             ) : null}
                           </div>
