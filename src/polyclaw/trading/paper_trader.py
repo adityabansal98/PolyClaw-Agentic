@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     filled_price REAL,
     filled_size REAL,
     total_cost REAL,
+    fee REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     timestamp INTEGER NOT NULL
 );
@@ -75,6 +76,7 @@ class PaperTrader(TraderInterface):
     - Market orders fill at the real best bid/ask from the live orderbook.
     - Limit orders fill if the orderbook price crosses your limit price.
     - Simulates slippage by walking the orderbook for large orders.
+    - Deducts Polymarket fees (fetched per-market via CLOB API).
     - Starting balance is configurable (default $10,000 USDC).
     """
 
@@ -89,7 +91,15 @@ class PaperTrader(TraderInterface):
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(PAPER_SCHEMA)
 
+        # Add fee column if upgrading from old schema
+        try:
+            self.conn.execute("ALTER TABLE paper_trades ADD COLUMN fee REAL NOT NULL DEFAULT 0")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         self.clob = clob or ClobClientWrapper()
+        self._fee_cache: dict[str, int] = {}
 
         # Initialize balance if first run
         row = self.conn.execute(
@@ -118,6 +128,20 @@ class PaperTrader(TraderInterface):
             "UPDATE paper_config SET value = ? WHERE key = 'cash_balance'",
             (str(amount),),
         )
+
+    def _get_fee_rate(self, token_id: str) -> float:
+        """Get fee rate as a decimal (e.g. 0.02 for 200bps) from CLOB API, cached."""
+        if token_id in self._fee_cache:
+            return self._fee_cache[token_id] / 10_000
+
+        try:
+            bps = self.clob._client.get_fee_rate_bps(token_id)
+        except Exception:
+            bps = 0
+            logger.warning("Failed to fetch fee rate for %s, defaulting to 0", token_id[:30])
+
+        self._fee_cache[token_id] = bps
+        return bps / 10_000
 
     def place_order(self, order: TradeOrder) -> OrderResult:
         if order.order_type == TradeOrderType.MARKET:
@@ -151,8 +175,25 @@ class PaperTrader(TraderInterface):
                 message=f"No {'asks' if order.side == Side.BUY else 'bids'} in orderbook",
             )
 
+        # FIX #5: Check cash upfront for buys, check shares for sells
+        cash = self._get_cash()
+
+        if order.side == Side.SELL:
+            # FIX #2: Reject if insufficient shares
+            held = self._get_held_shares(order.token_id)
+            if held <= 0:
+                return OrderResult(
+                    order_id=trade_id,
+                    status=OrderStatus.REJECTED,
+                    message=f"No shares held to sell",
+                )
+            # Cap sell size to held shares
+            effective_size = min(order.size, held)
+        else:
+            effective_size = order.size
+
         # Walk the book to simulate fill with slippage
-        remaining = order.size
+        remaining = effective_size
         total_cost = 0.0
         total_shares = 0.0
 
@@ -162,8 +203,12 @@ class PaperTrader(TraderInterface):
 
             if order.side == Side.BUY:
                 # size is USDC amount for market buys
+                # FIX #5: Stop early if out of cash
+                cash_left = cash - total_cost
+                if cash_left <= 0:
+                    break
                 usdc_at_level = level.size * level.price
-                usdc_to_fill = min(remaining, usdc_at_level)
+                usdc_to_fill = min(remaining, usdc_at_level, cash_left)
                 shares_filled = usdc_to_fill / level.price
                 total_cost += usdc_to_fill
                 total_shares += shares_filled
@@ -185,21 +230,16 @@ class PaperTrader(TraderInterface):
 
         avg_price = total_cost / total_shares if total_shares > 0 else 0
 
-        # Check cash for buys
-        cash = self._get_cash()
-        if order.side == Side.BUY and total_cost > cash:
-            return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
-                message=f"Insufficient funds: need ${total_cost:.2f}, have ${cash:.2f}",
-            )
+        # FIX #1: Calculate and deduct Polymarket fees
+        fee_rate = self._get_fee_rate(order.token_id)
+        fee = total_cost * fee_rate
 
         # Execute the fill
         if order.side == Side.BUY:
-            self._set_cash(cash - total_cost)
+            self._set_cash(cash - total_cost - fee)
             self._update_position(order, total_shares, avg_price)
         else:
-            self._set_cash(cash + total_cost)
+            self._set_cash(cash + total_cost - fee)
             self._update_position(order, total_shares, avg_price)
 
         # Record the trade
@@ -208,19 +248,20 @@ class PaperTrader(TraderInterface):
             """INSERT INTO paper_trades
                (id, token_id, market_id, market_question, outcome, side,
                 order_type, requested_price, filled_price, filled_size,
-                total_cost, status, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                total_cost, fee, status, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (trade_id, order.token_id, order.market_id, order.market_question,
              order.outcome, order.side.value, order.order_type.value,
-             order.price, avg_price, total_shares, total_cost,
+             order.price, avg_price, total_shares, total_cost, fee,
              OrderStatus.FILLED.value, now),
         )
         self.conn.commit()
 
+        fee_str = f" (fee ${fee:.2f})" if fee > 0 else ""
         logger.info(
-            "PAPER %s %s: %.2f shares @ avg $%.4f (cost $%.2f) | %s [%s]",
+            "PAPER %s %s: %.2f shares @ avg $%.4f (cost $%.2f%s) | %s [%s]",
             order.side.value, order.outcome, total_shares, avg_price,
-            total_cost, order.market_question[:40], trade_id,
+            total_cost, fee_str, order.market_question[:40], trade_id,
         )
 
         return OrderResult(
@@ -253,15 +294,13 @@ class PaperTrader(TraderInterface):
 
         # Check if limit price crosses the book
         if order.side == Side.BUY:
-            # Buy limit fills if best ask <= limit price
-            fillable_asks = [a for a in ob.asks if a.price <= order.price]
-            fillable_asks.sort(key=lambda l: l.price)
+            fillable_levels = [a for a in ob.asks if a.price <= order.price]
+            fillable_levels.sort(key=lambda l: l.price)
         else:
-            # Sell limit fills if best bid >= limit price
-            fillable_asks = [b for b in ob.bids if b.price >= order.price]
-            fillable_asks.sort(key=lambda l: l.price, reverse=True)
+            fillable_levels = [b for b in ob.bids if b.price >= order.price]
+            fillable_levels.sort(key=lambda l: l.price, reverse=True)
 
-        if not fillable_asks:
+        if not fillable_levels:
             # Store as open order for later checking
             now = int(time.time() * 1000)
             self.conn.execute(
@@ -286,33 +325,60 @@ class PaperTrader(TraderInterface):
                 message="Limit order placed (not yet fillable at current prices)",
             )
 
+        # FIX #2: For sells, cap to held shares
+        effective_size = order.size
+        if order.side == Side.SELL:
+            held = self._get_held_shares(order.token_id)
+            if held <= 0:
+                return OrderResult(
+                    order_id=trade_id,
+                    status=OrderStatus.REJECTED,
+                    message="No shares held to sell",
+                )
+            effective_size = min(order.size, held)
+
         # Walk fillable levels
-        remaining = order.size
+        cash = self._get_cash()
+        remaining = effective_size
         total_cost = 0.0
         total_shares = 0.0
 
-        for level in fillable_asks:
+        for level in fillable_levels:
             if remaining <= 0:
                 break
+
             fill = min(remaining, level.size)
+
+            # FIX #5: For buys, check cash per level
+            if order.side == Side.BUY:
+                level_cost = fill * level.price
+                cash_left = cash - total_cost
+                if level_cost > cash_left:
+                    fill = cash_left / level.price
+                    if fill <= 0:
+                        break
+
             total_cost += fill * level.price
             total_shares += fill
             remaining -= fill
 
-        avg_price = total_cost / total_shares if total_shares > 0 else order.price
-
-        cash = self._get_cash()
-        if order.side == Side.BUY and total_cost > cash:
+        if total_shares == 0:
             return OrderResult(
                 order_id=trade_id,
                 status=OrderStatus.REJECTED,
-                message=f"Insufficient funds: need ${total_cost:.2f}, have ${cash:.2f}",
+                message="Insufficient funds or liquidity",
             )
 
+        avg_price = total_cost / total_shares if total_shares > 0 else order.price
+
+        # FIX #1: Calculate fees
+        fee_rate = self._get_fee_rate(order.token_id)
+        fee = total_cost * fee_rate
+
         if order.side == Side.BUY:
-            self._set_cash(cash - total_cost)
+            self._set_cash(cash - total_cost - fee)
         else:
-            self._set_cash(cash + total_cost)
+            self._set_cash(cash + total_cost - fee)
         self._update_position(order, total_shares, avg_price)
 
         now = int(time.time() * 1000)
@@ -321,19 +387,20 @@ class PaperTrader(TraderInterface):
             """INSERT INTO paper_trades
                (id, token_id, market_id, market_question, outcome, side,
                 order_type, requested_price, filled_price, filled_size,
-                total_cost, status, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                total_cost, fee, status, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (trade_id, order.token_id, order.market_id, order.market_question,
              order.outcome, order.side.value, order.order_type.value,
-             order.price, avg_price, total_shares, total_cost,
+             order.price, avg_price, total_shares, total_cost, fee,
              status.value, now),
         )
         self.conn.commit()
 
+        fee_str = f" (fee ${fee:.2f})" if fee > 0 else ""
         logger.info(
-            "PAPER LIMIT %s %s: %.2f shares @ avg $%.4f (cost $%.2f) | %s [%s]",
+            "PAPER LIMIT %s %s: %.2f shares @ avg $%.4f (cost $%.2f%s) | %s [%s]",
             order.side.value, order.outcome, total_shares, avg_price,
-            total_cost, order.market_question[:40], trade_id,
+            total_cost, fee_str, order.market_question[:40], trade_id,
         )
 
         return OrderResult(
@@ -343,6 +410,13 @@ class PaperTrader(TraderInterface):
             filled_size=total_shares,
             total_cost=total_cost,
         )
+
+    def _get_held_shares(self, token_id: str) -> float:
+        row = self.conn.execute(
+            "SELECT shares FROM paper_positions WHERE token_id = ?",
+            (token_id,),
+        ).fetchone()
+        return row["shares"] if row else 0.0
 
     def _update_position(self, order: TradeOrder, shares: float, price: float):
         """Update or create a position after a fill."""
@@ -370,18 +444,20 @@ class PaperTrader(TraderInterface):
                      order.outcome, shares, price),
                 )
         else:  # SELL
-            if not row or row["shares"] < shares:
-                logger.warning("Selling more shares than held — short selling not supported in paper mode")
+            if not row or row["shares"] <= 0:
+                # FIX #2: Should not reach here (checked earlier), but guard anyway
                 return
             old_shares = row["shares"]
             old_avg = row["avg_entry_price"]
-            realized = shares * (price - old_avg)
-            new_shares = old_shares - shares
+            sell_shares = min(shares, old_shares)
+            realized = sell_shares * (price - old_avg)
+            new_shares = old_shares - sell_shares
 
-            if new_shares <= 0.001:  # effectively zero
+            # FIX #3: Preserve realized PnL — never delete, just zero out shares
+            if new_shares <= 0.001:
                 self.conn.execute(
-                    "DELETE FROM paper_positions WHERE token_id = ?",
-                    (order.token_id,),
+                    "UPDATE paper_positions SET shares = 0, realized_pnl = realized_pnl + ? WHERE token_id = ?",
+                    (realized, order.token_id),
                 )
             else:
                 self.conn.execute(
@@ -400,19 +476,22 @@ class PaperTrader(TraderInterface):
         return cancelled
 
     def get_positions(self) -> list[Position]:
-        rows = self.conn.execute("SELECT * FROM paper_positions").fetchall()
+        # Only return positions with shares > 0
+        rows = self.conn.execute(
+            "SELECT * FROM paper_positions WHERE shares > 0.001"
+        ).fetchall()
         positions = []
         for r in rows:
-            # Fetch live price for unrealized PnL
+            # FIX #4: Default unrealized to 0 and log errors
             current_price = None
-            unrealized = None
+            unrealized = 0.0
             try:
                 snap = self.clob.get_price(r["token_id"], market_id=r["market_id"])
                 current_price = snap.midpoint
                 if current_price is not None:
                     unrealized = r["shares"] * (current_price - r["avg_entry_price"])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to fetch price for %s: %s", r["token_id"][:30], e)
 
             positions.append(Position(
                 token_id=r["token_id"],
@@ -436,6 +515,7 @@ class PaperTrader(TraderInterface):
         )
         total_unrealized = sum(p.unrealized_pnl or 0 for p in positions)
 
+        # FIX #3: Sum realized PnL from ALL positions (including closed ones with shares=0)
         realized_row = self.conn.execute(
             "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM paper_positions"
         ).fetchone()
@@ -473,7 +553,6 @@ class PaperTrader(TraderInterface):
                 price=r["price"],
                 size=r["size"] - r["filled_size"],
             )
-            # Try to fill — _execute_limit_order re-checks the book
             result = self._execute_limit_order(order)
             if result.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED):
                 self.conn.execute("DELETE FROM paper_open_orders WHERE id = ?", (r["id"],))
@@ -492,6 +571,7 @@ class PaperTrader(TraderInterface):
             DELETE FROM paper_open_orders;
         """)
         self._set_cash(balance)
+        self._fee_cache.clear()
         self.conn.commit()
         logger.info("Paper trading reset. Balance: $%.2f", balance)
 
