@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 from .config import FrameworkConfig
+from .external_signals import ExternalAssessment, ExternalSignalEngine
 from .features import build_feature_vector, clamp
 from .models import MarketSnapshot, ScoredMarket
 
 
 class MarketScorer:
-    def __init__(self, config: FrameworkConfig):
+    def __init__(self, config: FrameworkConfig, external_engine: ExternalSignalEngine | None = None):
         self.config = config
+        self.external_engine = external_engine
 
     def score(self, market: MarketSnapshot) -> ScoredMarket:
         f = build_feature_vector(market)
         p_market = f.market_probability_yes
 
-        p_model = self._fair_probability(market, f)
-        confidence = self._confidence(market, f)
+        external = (
+            self.external_engine.assess(market)
+            if self.external_engine is not None
+            else ExternalAssessment(has_signal=False, probability_yes=None, confidence=0.0)
+        )
+        p_model = self._fair_probability(market, f, p_market=p_market, external=external)
+        confidence = self._confidence(market, f, external=external)
 
         ask_yes = market.order_book.ask_yes if market.order_book.ask_yes is not None else p_market
         bid_yes = market.order_book.bid_yes if market.order_book.bid_yes is not None else p_market
@@ -66,15 +73,46 @@ class MarketScorer:
             selected_edge=selected_edge,
             expected_value=expected_value,
             confidence=confidence,
+            external_probability_yes=external.probability_yes,
+            external_confidence=external.confidence,
+            external_sources=external.sources,
             correlation_key=self._correlation_key(market),
             score=score,
             rationale_tags=rationale,
         )
 
-    def _fair_probability(self, market: MarketSnapshot, f) -> float:
-        # Baseline from market price, then nudge with market microstructure and category priors.
-        p = f.market_probability_yes
+    def _fair_probability(
+        self,
+        market: MarketSnapshot,
+        f,
+        *,
+        p_market: float,
+        external: ExternalAssessment,
+    ) -> float:
+        if external.has_signal and external.probability_yes is not None:
+            # External signal is primary fair-value anchor.
+            p_ext = external.probability_yes
+            micro_tilt = (
+                0.015 * f.order_imbalance
+                + 0.010 * clamp(f.momentum_1d, -1.0, 1.0)
+                - 0.010 * f.volatility
+            )
+            p_ext_adj = clamp(p_ext + micro_tilt * external.confidence, 0.001, 0.999)
 
+            # Blend with market based on external confidence to avoid overreaction.
+            blend = clamp(external.confidence, 0.15, 0.95)
+            p_model = clamp(p_market + (p_ext_adj - p_market) * blend, 0.001, 0.999)
+
+            # Hard longshot cap: external can move low base-rates only modestly.
+            if p_market < 0.02:
+                p_model = min(p_model, p_market + 0.02)
+            return p_model
+
+        return self._heuristic_probability(market, f)
+
+    def _heuristic_probability(self, market: MarketSnapshot, f) -> float:
+        # Fallback when external signals are unavailable.
+        p = f.market_probability_yes
         micro_adj = (
             0.16 * f.momentum_7d
             + 0.10 * f.momentum_1d
@@ -85,10 +123,16 @@ class MarketScorer:
         )
 
         category_adj = self._category_adjustment(market, f)
-        p_model = clamp(p + micro_adj + category_adj, 0.01, 0.99)
+
+        # Longshot guardrails: avoid unrealistic upward jumps on tiny base rates.
+        if p < 0.02:
+            micro_adj = clamp(micro_adj, -0.02, 0.01)
+            category_adj = min(0.0, category_adj)
+
+        p_model = clamp(p + micro_adj + category_adj, 0.001, 0.999)
         return p_model
 
-    def _confidence(self, market: MarketSnapshot, f) -> float:
+    def _confidence(self, market: MarketSnapshot, f, *, external: ExternalAssessment) -> float:
         data_quality = 0.0
         data_quality += 0.20 if market.last_price_yes is not None else 0.0
         data_quality += 0.20 if market.order_book.bid_yes is not None else 0.0
@@ -102,6 +146,8 @@ class MarketScorer:
             + 0.15 * (1.0 - clamp(f.spread_bps / 700.0, 0.0, 1.0))
             + 0.20 * data_quality
         )
+        if external.has_signal:
+            confidence = 0.60 * confidence + 0.40 * external.confidence
         return clamp(confidence, 0.0, 1.0)
 
     def _category_adjustment(self, market: MarketSnapshot, f) -> float:

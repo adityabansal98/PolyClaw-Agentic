@@ -60,6 +60,9 @@ class ScoredMarket:
     selected_edge: float
     expected_value: float
     confidence: float
+    external_probability_yes: float | None
+    external_confidence: float
+    external_sources: list[str]
     correlation_key: set[str]
     score: float
     rationale_tags: list[str]
