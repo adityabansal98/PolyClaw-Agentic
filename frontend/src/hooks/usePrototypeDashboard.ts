@@ -546,11 +546,7 @@ export function usePrototypeDashboard() {
     ? 'Global kill switch is enabled.'
     : !overview.backendHealthSummary.paperExecutionAvailable
       ? 'Paper execution is currently unavailable.'
-      : overview.dataFreshness.opportunities.stale
-        ? 'Opportunity data is stale. Wait for the backend to refresh before trading.'
-        : overview.dataFreshness.portfolio.stale
-          ? 'Paper portfolio data is stale. Wait for the backend to refresh before trading.'
-          : null
+      : null
 
   const liveActionBlockedReason = killSwitchEnabled
     ? 'Global kill switch is enabled.'
