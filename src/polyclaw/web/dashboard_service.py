@@ -930,9 +930,7 @@ class DashboardService:
     def build_overview(self) -> dict[str, Any]:
         opportunities = self.list_opportunities()
         paper_positions = self.list_positions("paper")
-        paper_summary = self._load_portfolio() if not self.portfolio_cache.available else self.portfolio_cache.value
-        if not self.portfolio_cache.available:
-            paper_summary = self._load_portfolio()
+        paper_summary = self._load_portfolio()
 
         services = [
             {
