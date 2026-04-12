@@ -83,6 +83,7 @@ class SelectionPipeline:
                     "spread_bps": round(p.features.spread_bps, 2),
                     "hours_to_resolution": SelectionPipeline._hours_to_resolution(p.market.end_time),
                     "event_group": p.market.event_group,
+                    "condition_id": p.market.metadata.get("conditionId"),
                     "rationale_tags": p.rationale_tags,
                 }
                 for p in picks
@@ -97,11 +98,13 @@ class SelectionPipeline:
     @staticmethod
     def _market_url(metadata: dict[str, Any]) -> str | None:
         event_slug = metadata.get("eventSlug")
+        condition_id = metadata.get("conditionId")
         if event_slug:
-            return f"https://polymarket.com/event/{event_slug}"
+            base = f"https://polymarket.com/event/{event_slug}"
+            return f"{base}?tid={condition_id}" if condition_id else base
         slug = metadata.get("slug")
         if slug:
-            return f"https://polymarket.com/markets/{slug}"
+            return f"https://polymarket.com/event/{slug}"
         return None
 
     @staticmethod
