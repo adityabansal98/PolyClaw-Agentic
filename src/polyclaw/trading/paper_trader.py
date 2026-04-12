@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     total_cost REAL,
     fee REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
-    timestamp INTEGER NOT NULL
+    timestamp BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS paper_positions (
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS paper_open_orders (
     price REAL NOT NULL,
     size REAL NOT NULL,
     filled_size REAL NOT NULL DEFAULT 0,
-    timestamp INTEGER NOT NULL
+    timestamp BIGINT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_paper_trades_token ON paper_trades(token_id);
@@ -72,12 +72,11 @@ CREATE INDEX IF NOT EXISTS idx_paper_trades_ts ON paper_trades(timestamp);
 class PaperTrader(TraderInterface):
     """Simulated trading engine that uses real Polymarket orderbook data.
 
-    - Tracks positions, cash balance, and PnL in a local SQLite database.
-    - Market orders fill at the real best bid/ask from the live orderbook.
-    - Limit orders fill if the orderbook price crosses your limit price.
-    - Simulates slippage by walking the orderbook for large orders.
-    - Deducts Polymarket fees (fetched per-market via CLOB API).
-    - Starting balance is configurable (default $10,000 USDC).
+    Supports two backends:
+    - SQLite (local dev, default)
+    - Supabase Postgres (production / Vercel)
+
+    Set via POLYCLAW_DB_BACKEND=sqlite|supabase in .env.
     """
 
     def __init__(
@@ -85,63 +84,124 @@ class PaperTrader(TraderInterface):
         db_path: str = "paper_trading.db",
         starting_balance: float = 10_000.0,
         clob: ClobClientWrapper | None = None,
+        backend: str | None = None,
     ):
-        self.conn = sqlite3.connect(db_path)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.executescript(PAPER_SCHEMA)
+        from polyclaw.config import settings
+        self._backend = backend or settings.db_backend
+        self._sb = None  # Supabase client (lazy)
+        self._conn = None  # SQLite connection (lazy)
 
-        # Add fee column if upgrading from old schema
-        try:
-            self.conn.execute("ALTER TABLE paper_trades ADD COLUMN fee REAL NOT NULL DEFAULT 0")
-            self.conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+        if self._backend == "supabase":
+            from polyclaw.storage.supabase_db import SupabaseDB
+            self._sb = SupabaseDB(url=settings.supabase_url, key=settings.supabase_key)
+            # Tables + initial data already created via migration
+        else:
+            self._conn = sqlite3.connect(db_path)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.executescript(PAPER_SCHEMA)
+            try:
+                self._conn.execute("ALTER TABLE paper_trades ADD COLUMN fee REAL NOT NULL DEFAULT 0")
+                self._conn.commit()
+            except sqlite3.OperationalError:
+                pass
+            # Initialize balance if first run
+            row = self._conn.execute(
+                "SELECT value FROM paper_config WHERE key = 'cash_balance'"
+            ).fetchone()
+            if row is None:
+                self._conn.execute(
+                    "INSERT INTO paper_config (key, value) VALUES ('cash_balance', ?)",
+                    (str(starting_balance),),
+                )
+                self._conn.execute(
+                    "INSERT INTO paper_config (key, value) VALUES ('starting_balance', ?)",
+                    (str(starting_balance),),
+                )
+                self._conn.commit()
 
         self.clob = clob or ClobClientWrapper()
         self._fee_cache: dict[str, int] = {}
+        logger.info("Paper trading initialized (%s backend)", self._backend)
 
-        # Initialize balance if first run
-        row = self.conn.execute(
-            "SELECT value FROM paper_config WHERE key = 'cash_balance'"
-        ).fetchone()
-        if row is None:
-            self.conn.execute(
-                "INSERT INTO paper_config (key, value) VALUES ('cash_balance', ?)",
-                (str(starting_balance),),
-            )
-            self.conn.execute(
-                "INSERT INTO paper_config (key, value) VALUES ('starting_balance', ?)",
-                (str(starting_balance),),
-            )
-            self.conn.commit()
-            logger.info("Paper trading initialized with $%.2f", starting_balance)
+    # ── DB helpers ──────────────────────────────────────────────
 
     def _get_cash(self) -> float:
-        row = self.conn.execute(
-            "SELECT value FROM paper_config WHERE key = 'cash_balance'"
-        ).fetchone()
-        return float(row["value"])
+        if self._backend == "supabase":
+            row = self._sb.select_one("paper_config", where={"key": "cash_balance"})
+            return float(row["value"]) if row else 0.0
+        else:
+            row = self._conn.execute(
+                "SELECT value FROM paper_config WHERE key = 'cash_balance'"
+            ).fetchone()
+            return float(row["value"])
 
     def _set_cash(self, amount: float):
-        self.conn.execute(
-            "UPDATE paper_config SET value = ? WHERE key = 'cash_balance'",
-            (str(amount),),
-        )
+        if self._backend == "supabase":
+            self._sb.update("paper_config", {"value": str(amount)}, where={"key": "cash_balance"})
+        else:
+            self._conn.execute(
+                "UPDATE paper_config SET value = ? WHERE key = 'cash_balance'",
+                (str(amount),),
+            )
 
     def _get_fee_rate(self, token_id: str) -> float:
-        """Get fee rate as a decimal (e.g. 0.02 for 200bps) from CLOB API, cached."""
         if token_id in self._fee_cache:
             return self._fee_cache[token_id] / 10_000
-
         try:
             bps = self.clob._client.get_fee_rate_bps(token_id)
         except Exception:
             bps = 0
             logger.warning("Failed to fetch fee rate for %s, defaulting to 0", token_id[:30])
-
         self._fee_cache[token_id] = bps
         return bps / 10_000
+
+    def _get_held_shares(self, token_id: str) -> float:
+        if self._backend == "supabase":
+            row = self._sb.select_one("paper_positions", where={"token_id": token_id})
+            return float(row["shares"]) if row else 0.0
+        else:
+            row = self._conn.execute(
+                "SELECT shares FROM paper_positions WHERE token_id = ?",
+                (token_id,),
+            ).fetchone()
+            return row["shares"] if row else 0.0
+
+    def _insert_trade(self, trade_id, order, avg_price, total_shares, total_cost, fee, status):
+        now = int(time.time() * 1000)
+        data = {
+            "id": trade_id,
+            "token_id": order.token_id,
+            "market_id": order.market_id,
+            "market_question": order.market_question,
+            "outcome": order.outcome,
+            "side": order.side.value,
+            "order_type": order.order_type.value,
+            "requested_price": order.price,
+            "filled_price": avg_price,
+            "filled_size": total_shares,
+            "total_cost": total_cost,
+            "fee": fee,
+            "status": status.value,
+            "timestamp": now,
+        }
+        if self._backend == "supabase":
+            self._sb.insert("paper_trades", data)
+        else:
+            self._conn.execute(
+                """INSERT INTO paper_trades
+                   (id, token_id, market_id, market_question, outcome, side,
+                    order_type, requested_price, filled_price, filled_size,
+                    total_cost, fee, status, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (trade_id, order.token_id, order.market_id, order.market_question,
+                 order.outcome, order.side.value, order.order_type.value,
+                 order.price, avg_price, total_shares, total_cost, fee,
+                 status.value, now),
+            )
+            self._conn.commit()
+
+    # ── Order execution ─────────────────────────────────────────
 
     def place_order(self, order: TradeOrder) -> OrderResult:
         if order.order_type == TradeOrderType.MARKET:
@@ -150,49 +210,40 @@ class PaperTrader(TraderInterface):
             return self._execute_limit_order(order)
 
     def _execute_market_order(self, order: TradeOrder) -> OrderResult:
-        """Fill a market order against the live orderbook with slippage simulation."""
         trade_id = str(uuid.uuid4())[:12]
 
         try:
             ob = self.clob.get_orderbook(order.token_id)
         except Exception as e:
             return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
+                order_id=trade_id, status=OrderStatus.REJECTED,
                 message=f"Failed to fetch orderbook: {e}",
             )
 
-        # For BUY: walk the asks (ascending price). For SELL: walk the bids (descending price).
         if order.side == Side.BUY:
-            levels = sorted(ob.asks, key=lambda l: l.price)  # cheapest first
+            levels = sorted(ob.asks, key=lambda l: l.price)
         else:
-            levels = sorted(ob.bids, key=lambda l: l.price, reverse=True)  # most expensive first
+            levels = sorted(ob.bids, key=lambda l: l.price, reverse=True)
 
         if not levels:
             return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
+                order_id=trade_id, status=OrderStatus.REJECTED,
                 message=f"No {'asks' if order.side == Side.BUY else 'bids'} in orderbook",
             )
 
-        # FIX #5: Check cash upfront for buys, check shares for sells
         cash = self._get_cash()
 
         if order.side == Side.SELL:
-            # FIX #2: Reject if insufficient shares
             held = self._get_held_shares(order.token_id)
             if held <= 0:
                 return OrderResult(
-                    order_id=trade_id,
-                    status=OrderStatus.REJECTED,
-                    message=f"No shares held to sell",
+                    order_id=trade_id, status=OrderStatus.REJECTED,
+                    message="No shares held to sell",
                 )
-            # Cap sell size to held shares
             effective_size = min(order.size, held)
         else:
             effective_size = order.size
 
-        # Walk the book to simulate fill with slippage
         remaining = effective_size
         total_cost = 0.0
         total_shares = 0.0
@@ -200,10 +251,7 @@ class PaperTrader(TraderInterface):
         for level in levels:
             if remaining <= 0:
                 break
-
             if order.side == Side.BUY:
-                # size is USDC amount for market buys
-                # FIX #5: Stop early if out of cash
                 cash_left = cash - total_cost
                 if cash_left <= 0:
                     break
@@ -214,7 +262,6 @@ class PaperTrader(TraderInterface):
                 total_shares += shares_filled
                 remaining -= usdc_to_fill
             else:
-                # size is shares for sells
                 shares_at_level = min(remaining, level.size)
                 usdc_received = shares_at_level * level.price
                 total_cost += usdc_received
@@ -223,39 +270,20 @@ class PaperTrader(TraderInterface):
 
         if total_shares == 0:
             return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
+                order_id=trade_id, status=OrderStatus.REJECTED,
                 message="Insufficient liquidity in orderbook",
             )
 
         avg_price = total_cost / total_shares if total_shares > 0 else 0
-
-        # FIX #1: Calculate and deduct Polymarket fees
         fee_rate = self._get_fee_rate(order.token_id)
         fee = total_cost * fee_rate
 
-        # Execute the fill
         if order.side == Side.BUY:
             self._set_cash(cash - total_cost - fee)
-            self._update_position(order, total_shares, avg_price)
         else:
             self._set_cash(cash + total_cost - fee)
-            self._update_position(order, total_shares, avg_price)
-
-        # Record the trade
-        now = int(time.time() * 1000)
-        self.conn.execute(
-            """INSERT INTO paper_trades
-               (id, token_id, market_id, market_question, outcome, side,
-                order_type, requested_price, filled_price, filled_size,
-                total_cost, fee, status, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (trade_id, order.token_id, order.market_id, order.market_question,
-             order.outcome, order.side.value, order.order_type.value,
-             order.price, avg_price, total_shares, total_cost, fee,
-             OrderStatus.FILLED.value, now),
-        )
-        self.conn.commit()
+        self._update_position(order, total_shares, avg_price)
+        self._insert_trade(trade_id, order, avg_price, total_shares, total_cost, fee, OrderStatus.FILLED)
 
         fee_str = f" (fee ${fee:.2f})" if fee > 0 else ""
         logger.info(
@@ -265,21 +293,16 @@ class PaperTrader(TraderInterface):
         )
 
         return OrderResult(
-            order_id=trade_id,
-            status=OrderStatus.FILLED,
-            filled_price=avg_price,
-            filled_size=total_shares,
-            total_cost=total_cost,
+            order_id=trade_id, status=OrderStatus.FILLED,
+            filled_price=avg_price, filled_size=total_shares, total_cost=total_cost,
         )
 
     def _execute_limit_order(self, order: TradeOrder) -> OrderResult:
-        """Check if a limit order can fill against the live orderbook."""
         trade_id = str(uuid.uuid4())[:12]
 
         if order.price is None:
             return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
+                order_id=trade_id, status=OrderStatus.REJECTED,
                 message="Limit orders require a price.",
             )
 
@@ -287,12 +310,10 @@ class PaperTrader(TraderInterface):
             ob = self.clob.get_orderbook(order.token_id)
         except Exception as e:
             return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
+                order_id=trade_id, status=OrderStatus.REJECTED,
                 message=f"Failed to fetch orderbook: {e}",
             )
 
-        # Check if limit price crosses the book
         if order.side == Side.BUY:
             fillable_levels = [a for a in ob.asks if a.price <= order.price]
             fillable_levels.sort(key=lambda l: l.price)
@@ -301,43 +322,43 @@ class PaperTrader(TraderInterface):
             fillable_levels.sort(key=lambda l: l.price, reverse=True)
 
         if not fillable_levels:
-            # Store as open order for later checking
             now = int(time.time() * 1000)
-            self.conn.execute(
-                """INSERT INTO paper_open_orders
-                   (id, token_id, market_id, market_question, outcome,
-                    side, price, size, filled_size, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-                (trade_id, order.token_id, order.market_id,
-                 order.market_question, order.outcome,
-                 order.side.value, order.price, order.size, now),
-            )
-            self.conn.commit()
+            data = {
+                "id": trade_id, "token_id": order.token_id,
+                "market_id": order.market_id, "market_question": order.market_question,
+                "outcome": order.outcome, "side": order.side.value,
+                "price": order.price, "size": order.size,
+                "filled_size": 0, "timestamp": now,
+            }
+            if self._backend == "supabase":
+                self._sb.insert("paper_open_orders", data)
+            else:
+                self._conn.execute(
+                    """INSERT INTO paper_open_orders
+                       (id, token_id, market_id, market_question, outcome,
+                        side, price, size, filled_size, timestamp)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
+                    (trade_id, order.token_id, order.market_id,
+                     order.market_question, order.outcome,
+                     order.side.value, order.price, order.size, now),
+                )
+                self._conn.commit()
 
-            logger.info(
-                "PAPER LIMIT %s %s: %.0f shares @ $%.4f (pending) | %s [%s]",
-                order.side.value, order.outcome, order.size,
-                order.price, order.market_question[:40], trade_id,
-            )
             return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.PENDING,
+                order_id=trade_id, status=OrderStatus.PENDING,
                 message="Limit order placed (not yet fillable at current prices)",
             )
 
-        # FIX #2: For sells, cap to held shares
         effective_size = order.size
         if order.side == Side.SELL:
             held = self._get_held_shares(order.token_id)
             if held <= 0:
                 return OrderResult(
-                    order_id=trade_id,
-                    status=OrderStatus.REJECTED,
+                    order_id=trade_id, status=OrderStatus.REJECTED,
                     message="No shares held to sell",
                 )
             effective_size = min(order.size, held)
 
-        # Walk fillable levels
         cash = self._get_cash()
         remaining = effective_size
         total_cost = 0.0
@@ -346,10 +367,7 @@ class PaperTrader(TraderInterface):
         for level in fillable_levels:
             if remaining <= 0:
                 break
-
             fill = min(remaining, level.size)
-
-            # FIX #5: For buys, check cash per level
             if order.side == Side.BUY:
                 level_cost = fill * level.price
                 cash_left = cash - total_cost
@@ -357,21 +375,17 @@ class PaperTrader(TraderInterface):
                     fill = cash_left / level.price
                     if fill <= 0:
                         break
-
             total_cost += fill * level.price
             total_shares += fill
             remaining -= fill
 
         if total_shares == 0:
             return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
+                order_id=trade_id, status=OrderStatus.REJECTED,
                 message="Insufficient funds or liquidity",
             )
 
         avg_price = total_cost / total_shares if total_shares > 0 else order.price
-
-        # FIX #1: Calculate fees
         fee_rate = self._get_fee_rate(order.token_id)
         fee = total_cost * fee_rate
 
@@ -381,46 +395,64 @@ class PaperTrader(TraderInterface):
             self._set_cash(cash + total_cost - fee)
         self._update_position(order, total_shares, avg_price)
 
-        now = int(time.time() * 1000)
         status = OrderStatus.FILLED if remaining <= 0 else OrderStatus.PARTIALLY_FILLED
-        self.conn.execute(
-            """INSERT INTO paper_trades
-               (id, token_id, market_id, market_question, outcome, side,
-                order_type, requested_price, filled_price, filled_size,
-                total_cost, fee, status, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (trade_id, order.token_id, order.market_id, order.market_question,
-             order.outcome, order.side.value, order.order_type.value,
-             order.price, avg_price, total_shares, total_cost, fee,
-             status.value, now),
-        )
-        self.conn.commit()
-
-        fee_str = f" (fee ${fee:.2f})" if fee > 0 else ""
-        logger.info(
-            "PAPER LIMIT %s %s: %.2f shares @ avg $%.4f (cost $%.2f%s) | %s [%s]",
-            order.side.value, order.outcome, total_shares, avg_price,
-            total_cost, fee_str, order.market_question[:40], trade_id,
-        )
+        self._insert_trade(trade_id, order, avg_price, total_shares, total_cost, fee, status)
 
         return OrderResult(
-            order_id=trade_id,
-            status=status,
-            filled_price=avg_price,
-            filled_size=total_shares,
-            total_cost=total_cost,
+            order_id=trade_id, status=status,
+            filled_price=avg_price, filled_size=total_shares, total_cost=total_cost,
         )
 
-    def _get_held_shares(self, token_id: str) -> float:
-        row = self.conn.execute(
-            "SELECT shares FROM paper_positions WHERE token_id = ?",
-            (token_id,),
-        ).fetchone()
-        return row["shares"] if row else 0.0
+    # ── Position management ─────────────────────────────────────
 
     def _update_position(self, order: TradeOrder, shares: float, price: float):
-        """Update or create a position after a fill."""
-        row = self.conn.execute(
+        if self._backend == "supabase":
+            self._update_position_supabase(order, shares, price)
+        else:
+            self._update_position_sqlite(order, shares, price)
+
+    def _update_position_supabase(self, order: TradeOrder, shares: float, price: float):
+        row = self._sb.select_one("paper_positions", where={"token_id": order.token_id})
+
+        if order.side == Side.BUY:
+            if row:
+                old_shares = float(row["shares"])
+                old_avg = float(row["avg_entry_price"])
+                new_shares = old_shares + shares
+                new_avg = ((old_shares * old_avg) + (shares * price)) / new_shares if new_shares > 0 else 0
+                self._sb.update("paper_positions",
+                    {"shares": new_shares, "avg_entry_price": new_avg},
+                    where={"token_id": order.token_id},
+                )
+            else:
+                self._sb.insert("paper_positions", {
+                    "token_id": order.token_id, "market_id": order.market_id,
+                    "market_question": order.market_question, "outcome": order.outcome,
+                    "shares": shares, "avg_entry_price": price, "realized_pnl": 0,
+                })
+        else:  # SELL
+            if not row or float(row["shares"]) <= 0:
+                return
+            old_shares = float(row["shares"])
+            old_avg = float(row["avg_entry_price"])
+            sell_shares = min(shares, old_shares)
+            realized = sell_shares * (price - old_avg)
+            new_shares = old_shares - sell_shares
+            old_realized = float(row["realized_pnl"])
+
+            if new_shares <= 0.001:
+                self._sb.update("paper_positions",
+                    {"shares": 0, "realized_pnl": old_realized + realized},
+                    where={"token_id": order.token_id},
+                )
+            else:
+                self._sb.update("paper_positions",
+                    {"shares": new_shares, "realized_pnl": old_realized + realized},
+                    where={"token_id": order.token_id},
+                )
+
+    def _update_position_sqlite(self, order: TradeOrder, shares: float, price: float):
+        row = self._conn.execute(
             "SELECT * FROM paper_positions WHERE token_id = ?",
             (order.token_id,),
         ).fetchone()
@@ -431,12 +463,12 @@ class PaperTrader(TraderInterface):
                 old_avg = row["avg_entry_price"]
                 new_shares = old_shares + shares
                 new_avg = ((old_shares * old_avg) + (shares * price)) / new_shares if new_shares > 0 else 0
-                self.conn.execute(
+                self._conn.execute(
                     "UPDATE paper_positions SET shares = ?, avg_entry_price = ? WHERE token_id = ?",
                     (new_shares, new_avg, order.token_id),
                 )
             else:
-                self.conn.execute(
+                self._conn.execute(
                     """INSERT INTO paper_positions
                        (token_id, market_id, market_question, outcome, shares, avg_entry_price, realized_pnl)
                        VALUES (?, ?, ?, ?, ?, ?, 0)""",
@@ -445,7 +477,6 @@ class PaperTrader(TraderInterface):
                 )
         else:  # SELL
             if not row or row["shares"] <= 0:
-                # FIX #2: Should not reach here (checked earlier), but guard anyway
                 return
             old_shares = row["shares"]
             old_avg = row["avg_entry_price"]
@@ -453,53 +484,61 @@ class PaperTrader(TraderInterface):
             realized = sell_shares * (price - old_avg)
             new_shares = old_shares - sell_shares
 
-            # FIX #3: Preserve realized PnL — never delete, just zero out shares
             if new_shares <= 0.001:
-                self.conn.execute(
+                self._conn.execute(
                     "UPDATE paper_positions SET shares = 0, realized_pnl = realized_pnl + ? WHERE token_id = ?",
                     (realized, order.token_id),
                 )
             else:
-                self.conn.execute(
+                self._conn.execute(
                     "UPDATE paper_positions SET shares = ?, realized_pnl = realized_pnl + ? WHERE token_id = ?",
                     (new_shares, realized, order.token_id),
                 )
+        self._conn.commit()
+
+    # ── Read operations ─────────────────────────────────────────
 
     def cancel_order(self, order_id: str) -> bool:
-        result = self.conn.execute(
-            "DELETE FROM paper_open_orders WHERE id = ?", (order_id,)
-        )
-        self.conn.commit()
-        cancelled = result.rowcount > 0
+        if self._backend == "supabase":
+            count = self._sb.delete("paper_open_orders", where={"id": order_id})
+            cancelled = count > 0
+        else:
+            result = self._conn.execute(
+                "DELETE FROM paper_open_orders WHERE id = ?", (order_id,)
+            )
+            self._conn.commit()
+            cancelled = result.rowcount > 0
         if cancelled:
             logger.info("PAPER cancelled order %s", order_id)
         return cancelled
 
     def get_positions(self) -> list[Position]:
-        # Only return positions with shares > 0
-        rows = self.conn.execute(
-            "SELECT * FROM paper_positions WHERE shares > 0.001"
-        ).fetchall()
+        if self._backend == "supabase":
+            rows = self._sb.select("paper_positions", where={"shares": "gt.0.001"})
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM paper_positions WHERE shares > 0.001"
+            ).fetchall()
+
         positions = []
         for r in rows:
-            # FIX #4: Default unrealized to 0 and log errors
             current_price = None
             unrealized = 0.0
             try:
                 snap = self.clob.get_price(r["token_id"], market_id=r["market_id"])
                 current_price = snap.midpoint
                 if current_price is not None:
-                    unrealized = r["shares"] * (current_price - r["avg_entry_price"])
+                    unrealized = float(r["shares"]) * (current_price - float(r["avg_entry_price"]))
             except Exception as e:
-                logger.warning("Failed to fetch price for %s: %s", r["token_id"][:30], e)
+                logger.warning("Failed to fetch price for %s: %s", str(r["token_id"])[:30], e)
 
             positions.append(Position(
                 token_id=r["token_id"],
                 market_id=r["market_id"],
                 market_question=r["market_question"],
                 outcome=r["outcome"],
-                shares=r["shares"],
-                avg_entry_price=r["avg_entry_price"],
+                shares=float(r["shares"]),
+                avg_entry_price=float(r["avg_entry_price"]),
                 current_price=current_price,
                 unrealized_pnl=unrealized,
             ))
@@ -515,11 +554,15 @@ class PaperTrader(TraderInterface):
         )
         total_unrealized = sum(p.unrealized_pnl or 0 for p in positions)
 
-        # FIX #3: Sum realized PnL from ALL positions (including closed ones with shares=0)
-        realized_row = self.conn.execute(
-            "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM paper_positions"
-        ).fetchone()
-        total_realized = realized_row["total"]
+        # Sum realized PnL from ALL positions (including closed ones)
+        if self._backend == "supabase":
+            all_pos = self._sb.select("paper_positions")
+            total_realized = sum(float(r["realized_pnl"]) for r in all_pos)
+        else:
+            realized_row = self._conn.execute(
+                "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM paper_positions"
+            ).fetchone()
+            total_realized = realized_row["total"]
 
         return PortfolioSummary(
             cash_balance=cash,
@@ -534,46 +577,62 @@ class PaperTrader(TraderInterface):
         return self._get_cash()
 
     def get_trade_history(self) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT * FROM paper_trades ORDER BY timestamp DESC"
-        ).fetchall()
-        return [dict(r) for r in rows]
+        if self._backend == "supabase":
+            rows = self._sb.select("paper_trades", order="timestamp.desc")
+            return [dict(r) for r in rows]
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM paper_trades ORDER BY timestamp DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def check_open_orders(self):
-        """Check if any pending limit orders can now fill against live orderbook."""
-        rows = self.conn.execute("SELECT * FROM paper_open_orders").fetchall()
+        if self._backend == "supabase":
+            rows = self._sb.select("paper_open_orders")
+        else:
+            rows = self._conn.execute("SELECT * FROM paper_open_orders").fetchall()
+
         for r in rows:
             order = TradeOrder(
-                token_id=r["token_id"],
-                market_id=r["market_id"],
-                market_question=r["market_question"],
-                outcome=r["outcome"],
-                side=Side(r["side"]),
-                order_type=TradeOrderType.LIMIT,
-                price=r["price"],
-                size=r["size"] - r["filled_size"],
+                token_id=r["token_id"], market_id=r["market_id"],
+                market_question=r["market_question"], outcome=r["outcome"],
+                side=Side(r["side"]), order_type=TradeOrderType.LIMIT,
+                price=float(r["price"]), size=float(r["size"]) - float(r["filled_size"]),
             )
             result = self._execute_limit_order(order)
             if result.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED):
-                self.conn.execute("DELETE FROM paper_open_orders WHERE id = ?", (r["id"],))
-                self.conn.commit()
+                if self._backend == "supabase":
+                    self._sb.delete("paper_open_orders", where={"id": r["id"]})
+                else:
+                    self._conn.execute("DELETE FROM paper_open_orders WHERE id = ?", (r["id"],))
+                    self._conn.commit()
 
     def reset(self):
-        """Reset all paper trading state back to starting balance."""
-        starting = self.conn.execute(
-            "SELECT value FROM paper_config WHERE key = 'starting_balance'"
-        ).fetchone()
-        balance = float(starting["value"]) if starting else 10_000.0
+        if self._backend == "supabase":
+            self._sb.delete_all("paper_trades", pk_column="id")
+            self._sb.delete_all("paper_positions", pk_column="token_id")
+            self._sb.delete_all("paper_open_orders", pk_column="id")
+            starting = self._sb.select_one("paper_config", where={"key": "starting_balance"})
+            balance = float(starting["value"]) if starting else 10_000.0
+            self._sb.update("paper_config", {"value": str(balance)}, where={"key": "cash_balance"})
+        else:
+            starting = self._conn.execute(
+                "SELECT value FROM paper_config WHERE key = 'starting_balance'"
+            ).fetchone()
+            balance = float(starting["value"]) if starting else 10_000.0
+            self._conn.executescript("""
+                DELETE FROM paper_trades;
+                DELETE FROM paper_positions;
+                DELETE FROM paper_open_orders;
+            """)
+            self._set_cash(balance)
+            self._conn.commit()
 
-        self.conn.executescript("""
-            DELETE FROM paper_trades;
-            DELETE FROM paper_positions;
-            DELETE FROM paper_open_orders;
-        """)
-        self._set_cash(balance)
         self._fee_cache.clear()
-        self.conn.commit()
         logger.info("Paper trading reset. Balance: $%.2f", balance)
 
     def close(self):
-        self.conn.close()
+        if self._backend == "supabase" and self._sb:
+            self._sb.close()
+        elif self._conn:
+            self._conn.close()
