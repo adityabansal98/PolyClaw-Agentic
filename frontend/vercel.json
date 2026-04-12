@@ -1,0 +1,4 @@
+{
+  "buildCommand": "vite build --outDir dist",
+  "outputDirectory": "dist"
+}

@@ -274,39 +274,57 @@ def strategy_bet(market_id: str):
     side_str = req.get("side", "YES").upper()
     size = float(req.get("size", 100))
 
-    # Resolve token_id via the dashboard service opportunity list
+    # Try to resolve token_id from the dashboard opportunity cache first
     dashboard = get_dashboard_service()
+    token_id = None
+    question = ""
+
     try:
         items = dashboard._load_opportunities()
     except Exception:
-        items = (dashboard.opportunities_cache.value or [])
+        items = dashboard.opportunities_cache.value or []
 
     opp = next((o for o in items if o["id"] == market_id), None)
-
     if not opp:
         detail = dashboard.get_opportunity_detail(market_id)
         if detail:
             opp = detail
 
-    if not opp:
-        return jsonify({"error": f"Market {market_id} not found in current feed"}), 404
+    if opp:
+        token_ids = opp.get("tokenIds", {})
+        token_id = token_ids.get(side_str)
+        question = opp.get("question", "")
 
-    token_ids = opp.get("tokenIds", {})
-    token_id = token_ids.get(side_str)
+    # If not in feed, fetch the market directly from Gamma API
     if not token_id:
-        return jsonify({"error": f"No {side_str} token available for this market"}), 400
+        try:
+            import httpx
+            resp = httpx.get(f"https://gamma-api.polymarket.com/markets/{market_id}", timeout=10)
+            if resp.status_code == 200:
+                from polyclaw.models.market import Market as MarketModel
+                market = MarketModel.model_validate(resp.json())
+                question = market.question
+                for idx, outcome in enumerate(market.outcomes):
+                    if outcome.upper() == side_str and idx < len(market.clob_token_ids):
+                        token_id = market.clob_token_ids[idx]
+                        break
+        except Exception as exc:
+            logger.warning("Could not fetch market %s from Gamma: %s", market_id, exc)
+
+    if not token_id:
+        return jsonify({"error": f"No {side_str} token available for market {market_id}"}), 400
 
     order = TradeOrder(
         token_id=token_id,
         market_id=market_id,
-        market_question=opp.get("question", ""),
+        market_question=question,
         outcome=side_str,
         side=Side.BUY,
         order_type=TradeOrderType.MARKET,
         size=size,
     )
     result = get_trader().place_order(order)
-    get_dashboard_service().invalidate_paper_state()
+    dashboard.invalidate_paper_state()
     return jsonify(
         {
             "order_id": result.order_id,

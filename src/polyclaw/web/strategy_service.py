@@ -64,8 +64,22 @@ def _run_pipeline():
                 }
             )
 
-    all_picks.sort(key=lambda p: p.get("score", 0), reverse=True)
-    return all_picks[:15]
+    return _top_per_category(all_picks, n=5)
+
+
+def _top_per_category(picks, n=5):
+    # type: (List[Dict[str, Any]], int) -> List[Dict[str, Any]]
+    """Return top *n* picks per category, ordered by score within each group."""
+    from collections import defaultdict
+    by_cat = defaultdict(list)  # type: dict
+    for p in picks:
+        by_cat[p.get("category", "Unknown")].append(p)
+    result = []  # type: List[Dict[str, Any]]
+    for cat in by_cat:
+        ranked = sorted(by_cat[cat], key=lambda p: p.get("score", 0), reverse=True)
+        result.extend(ranked[:n])
+    result.sort(key=lambda p: p.get("score", 0), reverse=True)
+    return result
 
 
 def _openai_complete(api_key, prompt):
@@ -158,8 +172,7 @@ def _load_from_precomputed():
                 "ai_commentary": None,
             })
 
-    all_picks.sort(key=lambda p: p.get("score", 0), reverse=True)
-    return all_picks[:15]
+    return _top_per_category(all_picks, n=5)
 
 
 def _do_refresh():

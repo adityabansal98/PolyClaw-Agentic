@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from polyclaw.config import settings
@@ -19,6 +21,32 @@ POSITIONS_CACHE_TTL = 12
 DETAIL_CACHE_TTL = 8
 TOP_LEVEL_DEPTH = 5
 DEFAULT_OPPORTUNITY_LIMIT = 36
+
+STRATEGY_OUTPUT_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "live_selection_output_external_required.json"
+
+
+def _load_strategy_index() -> dict[str, dict[str, Any]]:
+    """Load pre-computed strategy scores keyed by market_id."""
+    if not STRATEGY_OUTPUT_PATH.exists():
+        logger.info("No strategy output file at %s", STRATEGY_OUTPUT_PATH)
+        return {}
+
+    try:
+        raw = json.loads(STRATEGY_OUTPUT_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("Failed to parse strategy output file")
+        return {}
+
+    index: dict[str, dict[str, Any]] = {}
+    for _category, picks in raw.items():
+        if not isinstance(picks, list):
+            continue
+        for pick in picks:
+            market_id = pick.get("market_id")
+            if market_id:
+                index[str(market_id)] = pick
+    return index
+
 
 NBA_TERMS = {
     "atlanta hawks",
@@ -360,6 +388,66 @@ class DashboardService:
     positions_cache: CacheState = field(default_factory=CacheState)
     detail_cache: dict[str, CacheState] = field(default_factory=dict)
     market_index: dict[str, Market] = field(default_factory=dict)
+    strategy_index: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def __post_init__(self):
+        self.strategy_index = _load_strategy_index()
+        if self.strategy_index:
+            logger.info("Loaded %d strategy scores from %s", len(self.strategy_index), STRATEGY_OUTPUT_PATH.name)
+
+    def _strategy_fields(self, market_id: str) -> dict[str, Any]:
+        """Return strategy-enriched fields for a given market, falling back to empty defaults."""
+        strategy = self.strategy_index.get(str(market_id))
+        if not strategy:
+            return {
+                "recommendedOutcome": None,
+                "expectedReturn": None,
+                "confidence": None,
+                "signalStrength": None,
+                "strategyAvailable": False,
+                "strategySummary": None,
+                "thesis": None,
+                "invalidation": None,
+                "riskFlags": [
+                    "Strategy unavailable",
+                    "Human review required before paper execution",
+                ],
+            }
+
+        side = strategy.get("side")
+        ev = strategy.get("expected_value")
+        confidence = strategy.get("confidence")
+        edge = strategy.get("selected_edge")
+        p_model = strategy.get("p_model_yes")
+        p_market = strategy.get("p_market_yes")
+        p_external = strategy.get("p_external_yes")
+        tags = strategy.get("rationale_tags", [])
+
+        thesis_parts = []
+        if p_model is not None and p_market is not None:
+            thesis_parts.append(f"Model prices YES at {p_model:.1%} vs market {p_market:.1%}.")
+        if p_external is not None:
+            thesis_parts.append(f"External signals estimate {p_external:.1%}.")
+        if edge is not None:
+            thesis_parts.append(f"Selected edge: {edge:.1%}.")
+
+        risk_flags = ["Human review required before paper execution"]
+        if "relaxed-fill" in tags:
+            risk_flags.append("Relaxed fill assumption — check liquidity")
+        if edge is not None and edge < 0.05:
+            risk_flags.append("Thin edge — monitor closely")
+
+        return {
+            "recommendedOutcome": side,
+            "expectedReturn": round(ev, 4) if ev is not None else None,
+            "confidence": round(confidence, 4) if confidence is not None else None,
+            "signalStrength": round(strategy.get("score", 0), 4) or None,
+            "strategyAvailable": True,
+            "strategySummary": f"{'Buy' if side == 'YES' else 'Sell'} {side} — EV {ev:+.1%}, edge {edge:.1%}" if ev is not None and edge is not None else None,
+            "thesis": " ".join(thesis_parts) if thesis_parts else None,
+            "invalidation": f"Edge collapses if market moves past model price ({p_model:.1%})" if p_model is not None else None,
+            "riskFlags": risk_flags,
+        }
 
     def invalidate_paper_state(self):
         self.portfolio_cache = CacheState()
@@ -506,18 +594,7 @@ class DashboardService:
                     "maxStake": estimated_max_ticket(market_depth or market.liquidity * 0.02),
                     "entryPriceMin": orderbook.best_bid if orderbook else None,
                     "entryPriceMax": orderbook.best_ask if orderbook else None,
-                    "recommendedOutcome": None,
-                    "expectedReturn": None,
-                    "confidence": None,
-                    "signalStrength": None,
-                    "strategyAvailable": False,
-                    "strategySummary": None,
-                    "thesis": None,
-                    "invalidation": None,
-                    "riskFlags": [
-                        "Strategy unavailable",
-                        "Human review required before paper execution",
-                    ],
+                    **self._strategy_fields(market.id),
                     "tags": tags,
                     "tokenIds": tokens,
                     "outcomes": [
@@ -540,6 +617,8 @@ class DashboardService:
 
         items.sort(
             key=lambda item: (
+                1 if item.get("strategyAvailable") else 0,
+                item.get("signalStrength") or 0,
                 item.get("volume24h") or 0,
                 item.get("liquidity") or 0,
                 -(item.get("spreadBps") or 100000),
@@ -896,10 +975,14 @@ class DashboardService:
                 "description": "Overview and Positions are paper-backed in Phase 1 while live market data comes from Polymarket.",
             },
             {
-                "id": "strategy-unavailable",
-                "tone": "neutral",
-                "title": "Strategy recommendations are not connected yet",
-                "description": "Opportunities show raw live markets, orderbook depth, and prices. Expected return and confidence stay unavailable for now.",
+                "id": "strategy-status",
+                "tone": "positive" if self.strategy_index else "neutral",
+                "title": f"Strategy scoring active — {len(self.strategy_index)} markets scored" if self.strategy_index else "Strategy recommendations are not connected yet",
+                "description": (
+                    "Opportunities with matched strategies show expected return, confidence, and recommended side."
+                    if self.strategy_index
+                    else "Opportunities show raw live markets, orderbook depth, and prices. Expected return and confidence stay unavailable for now."
+                ),
             },
         ]
 

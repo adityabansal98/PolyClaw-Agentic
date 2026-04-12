@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-CATEGORIES = ("NBA", "Soccer", "Cricket", "Trump", "Elections")
+CATEGORIES = ("NBA", "Soccer", "Cricket", "Mentions", "Elections")
 
 
 @dataclass(frozen=True)

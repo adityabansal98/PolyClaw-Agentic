@@ -352,13 +352,13 @@ class PolymarketPublicClient:
         if norm in {"soccer", "football"} or "premier league" in question_low or "uefa" in question_low:
             return "Soccer"
         if norm in {"trump", "donald trump"} or "trump" in question_low:
-            return "Trump"
+            return "Mentions"
         if norm in {"elections", "election", "politics"} or "election" in question_low:
             return "Elections"
 
         tags = [str(t).lower() for t in (raw.get("tags") or [])]
         if "trump" in tags:
-            return "Trump"
+            return "Mentions"
         if "elections" in tags:
             return "Elections"
 

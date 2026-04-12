@@ -3,10 +3,11 @@ import { useDeferredValue, useState } from 'react'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { StatusPill } from '../components/StatusPill'
 import { formatCurrency, formatPercent, formatRelativeTime, formatSignedCurrency } from '../lib/format'
-import type { Position, SessionUser } from '../lib/types'
+import type { PortfolioSummary, Position, SessionUser } from '../lib/types'
 
 interface PositionsPageProps {
   positions: Position[]
+  portfolioSummary: PortfolioSummary
   sessionUser: SessionUser
   actionBlockedReason: string | null
   pausedCategories: string[]
@@ -19,6 +20,7 @@ interface PositionsPageProps {
 
 export function PositionsPage({
   positions,
+  portfolioSummary,
   sessionUser: _sessionUser,
   actionBlockedReason,
   pausedCategories,
@@ -71,6 +73,49 @@ export function PositionsPage({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search markets…"
           />
+        </div>
+
+        <div className="portfolio-overview">
+          <div className="portfolio-overview__kpi">
+            <span className="portfolio-overview__label">Total P&L</span>
+            <span className="portfolio-overview__value" style={{
+              color: (portfolioSummary.unrealizedPnl ?? 0) + (portfolioSummary.realizedPnl ?? 0) >= 0 ? '#8bd8be' : '#ffb3ab'
+            }}>
+              {formatSignedCurrency((portfolioSummary.unrealizedPnl ?? 0) + (portfolioSummary.realizedPnl ?? 0))}
+            </span>
+          </div>
+          <div className="portfolio-overview__kpi">
+            <span className="portfolio-overview__label">Unrealized</span>
+            <span className="portfolio-overview__value" style={{
+              color: (portfolioSummary.unrealizedPnl ?? 0) >= 0 ? '#8bd8be' : '#ffb3ab'
+            }}>
+              {formatSignedCurrency(portfolioSummary.unrealizedPnl)}
+            </span>
+          </div>
+          <div className="portfolio-overview__kpi">
+            <span className="portfolio-overview__label">Realized</span>
+            <span className="portfolio-overview__value" style={{
+              color: (portfolioSummary.realizedPnl ?? 0) >= 0 ? '#8bd8be' : '#ffb3ab'
+            }}>
+              {formatSignedCurrency(portfolioSummary.realizedPnl)}
+            </span>
+          </div>
+          <div className="portfolio-overview__kpi">
+            <span className="portfolio-overview__label">Daily P&L</span>
+            <span className="portfolio-overview__value" style={{
+              color: (portfolioSummary.dailyPnl ?? 0) >= 0 ? '#8bd8be' : '#ffb3ab'
+            }}>
+              {formatSignedCurrency(portfolioSummary.dailyPnl)}
+            </span>
+          </div>
+          <div className="portfolio-overview__kpi">
+            <span className="portfolio-overview__label">Open Exposure</span>
+            <span className="portfolio-overview__value">{formatCurrency(portfolioSummary.openExposure)}</span>
+          </div>
+          <div className="portfolio-overview__kpi">
+            <span className="portfolio-overview__label">Liquidation Value</span>
+            <span className="portfolio-overview__value">{formatCurrency(portfolioSummary.liquidationValue)}</span>
+          </div>
         </div>
 
         {actionBlockedReason ? (

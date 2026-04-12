@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import type { ScoredOpportunity, OpportunitySide } from '../lib/types'
 
-const CATEGORIES = ['All', 'NBA', 'Soccer', 'Cricket', 'Elections', 'Mentions']
+const CATEGORIES = ['NBA', 'Soccer', 'Cricket', 'Elections', 'Mentions'] as const
 type SortKey = 'score' | 'edge_pct' | 'liquidity_score'
 
 interface OpportunitiesPageProps {
@@ -11,16 +11,6 @@ interface OpportunitiesPageProps {
   scoredLoading: boolean
   paperActionBlockedReason: string | null
   onPlaceBet: (marketId: string, side: OpportunitySide, size: number) => Promise<void>
-}
-
-function ScoreBar({ value }: { value: number }) {
-  const pct = Math.round(value * 100)
-  const color = pct >= 70 ? '#61d5ab' : pct >= 50 ? '#f3b54b' : '#a1a1aa'
-  return (
-    <div className="score-bar-track">
-      <div className="score-bar-fill" style={{ width: `${pct}%`, background: color }} />
-    </div>
-  )
 }
 
 function SideBadge({ side }: { side: OpportunitySide }) {
@@ -45,17 +35,19 @@ export function OpportunitiesPage({
   paperActionBlockedReason,
   onPlaceBet,
 }: OpportunitiesPageProps) {
-  const [category, setCategory] = useState('All')
   const [sortBy, setSortBy] = useState<SortKey>('score')
   const [pendingBet, setPendingBet] = useState<{ pick: ScoredOpportunity; size: number } | null>(null)
   const [betSize, setBetSize] = useState(100)
   const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set())
   const [bettingId, setBettingId] = useState<string | null>(null)
 
-  const filtered = scoredOpportunities
-    .filter((p) => !skippedIds.has(p.market_id))
-    .filter((p) => category === 'All' || p.category === category)
-    .sort((a, b) => (b[sortBy] ?? 0) - (a[sortBy] ?? 0))
+  const picksByCategory = new Map<string, ScoredOpportunity[]>()
+  for (const cat of CATEGORIES) {
+    const picks = scoredOpportunities
+      .filter((p) => p.category === cat && !skippedIds.has(p.market_id))
+      .sort((a, b) => (b[sortBy] ?? 0) - (a[sortBy] ?? 0))
+    picksByCategory.set(cat, picks)
+  }
 
   async function handleConfirmBet() {
     if (!pendingBet) return
@@ -77,23 +69,11 @@ export function OpportunitiesPage({
             <h1 className="opp-page__title">Trading Opportunities</h1>
             <p className="opp-page__subtitle muted">
               {scoredLoading && scoredOpportunities.length === 0
-                ? 'Running scoring pipeline…'
-                : `${filtered.length} scored picks · refreshes every 30s`}
+                ? 'Running scoring pipeline...'
+                : `Top 5 picks per category · refreshes every 30s`}
             </p>
           </div>
           <div className="opp-page__controls">
-            <div className="cat-strip">
-              {CATEGORIES.map((cat) => (
-                <button
-                  key={cat}
-                  className={`cat-chip ${category === cat ? 'cat-chip--active' : ''}`}
-                  type="button"
-                  onClick={() => setCategory(cat)}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
             <select
               className="opp-sort-select"
               value={sortBy}
@@ -108,87 +88,112 @@ export function OpportunitiesPage({
 
         {paperActionBlockedReason ? (
           <div className="opp-blocked-banner">
-            <span>⚠ Paper trading blocked:</span> {paperActionBlockedReason}
+            <span>Warning: Paper trading blocked:</span> {paperActionBlockedReason}
           </div>
         ) : null}
 
-        <div className="opp-card-list">
-          {scoredLoading && scoredOpportunities.length === 0 ? (
-            Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
-          ) : filtered.length === 0 ? (
-            <p className="muted" style={{ gridColumn: '1 / -1', padding: '2rem 0' }}>
-              No picks available for this category yet.
-            </p>
-          ) : (
-            filtered.map((pick) => (
-              <article key={pick.market_id} className="opp-card">
-                <div className="opp-card__top">
-                  <div className="opp-card__meta">
-                    <span className="opp-card__category">{pick.category}</span>
-                    <SideBadge side={pick.side} />
-                  </div>
-                  {pick.market_url ? (
-                    <a
-                      href={pick.market_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="opp-card__ext-link"
-                    >
-                      ↗
-                    </a>
-                  ) : null}
+        {scoredLoading && scoredOpportunities.length === 0 ? (
+          <div className="opp-categories">
+            {CATEGORIES.map((cat) => (
+              <section key={cat} className="opp-category-section">
+                <h2 className="opp-category-section__title">{cat}</h2>
+                <div className="opp-category-section__cards">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <SkeletonCard key={i} />
+                  ))}
                 </div>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className="opp-categories">
+            {CATEGORIES.map((cat) => {
+              const picks = picksByCategory.get(cat) ?? []
+              return (
+                <section key={cat} className="opp-category-section">
+                  <h2 className="opp-category-section__title">
+                    {cat}
+                    <span className="opp-category-section__count">{picks.length}</span>
+                  </h2>
+                  {picks.length === 0 ? (
+                    <p className="muted" style={{ fontSize: '0.85rem', padding: '0.5rem 0' }}>
+                      No picks available yet.
+                    </p>
+                  ) : (
+                    <div className="opp-category-section__cards">
+                      {picks.map((pick) => (
+                        <article key={pick.market_id} className="opp-card">
+                          <div className="opp-card__top">
+                            <div className="opp-card__meta">
+                              <SideBadge side={pick.side} />
+                            </div>
+                            {pick.market_url ? (
+                              <a
+                                href={pick.market_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="opp-card__ext-link"
+                              >
+                                ->
+                              </a>
+                            ) : null}
+                          </div>
 
-                <p className="opp-card__question">{pick.question}</p>
+                          <p className="opp-card__question">{pick.question}</p>
 
-                <div className="opp-card__metrics">
-                  <div className="opp-metric">
-                    <span className="opp-metric__label">Edge</span>
-                    <strong className="opp-metric__value opp-metric__value--edge">
-                      +{pick.edge_pct.toFixed(1)}%
-                    </strong>
-                  </div>
-                  <div className="opp-metric">
-                    <span className="opp-metric__label">Our View</span>
-                    <strong className="opp-metric__value">
-                      {(pick.p_model_yes * 100).toFixed(1)}%
-                    </strong>
-                  </div>
-                  <div className="opp-metric">
-                    <span className="opp-metric__label">Market</span>
-                    <strong className="opp-metric__value">
-                      {(pick.p_market_yes * 100).toFixed(1)}%
-                    </strong>
-                  </div>
-                </div>
+                          <div className="opp-card__metrics">
+                            <div className="opp-metric">
+                              <span className="opp-metric__label">Edge</span>
+                              <strong className="opp-metric__value opp-metric__value--edge">
+                                +{pick.edge_pct.toFixed(1)}%
+                              </strong>
+                            </div>
+                            <div className="opp-metric">
+                              <span className="opp-metric__label">Our View</span>
+                              <strong className="opp-metric__value">
+                                {(pick.p_model_yes * 100).toFixed(1)}%
+                              </strong>
+                            </div>
+                            <div className="opp-metric">
+                              <span className="opp-metric__label">Market</span>
+                              <strong className="opp-metric__value">
+                                {(pick.p_market_yes * 100).toFixed(1)}%
+                              </strong>
+                            </div>
+                          </div>
 
-                {pick.ai_commentary ? (
-                  <p className="opp-card__commentary">{pick.ai_commentary}</p>
-                ) : null}
+                          {pick.ai_commentary ? (
+                            <p className="opp-card__commentary">{pick.ai_commentary}</p>
+                          ) : null}
 
-                <div className="opp-card__footer">
-                  <div className="opp-card__actions">
-                    <button
-                      className="button button--ghost opp-card__skip"
-                      type="button"
-                      onClick={() => setSkippedIds((prev) => new Set([...prev, pick.market_id]))}
-                    >
-                      Skip
-                    </button>
-                    <button
-                      className="button button--primary"
-                      type="button"
-                      disabled={Boolean(paperActionBlockedReason) || bettingId === pick.market_id}
-                      onClick={() => setPendingBet({ pick, size: betSize })}
-                    >
-                      {bettingId === pick.market_id ? 'Placing…' : 'Bet on Paper'}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
+                          <div className="opp-card__footer">
+                            <div className="opp-card__actions">
+                              <button
+                                className="button button--ghost opp-card__skip"
+                                type="button"
+                                onClick={() => setSkippedIds((prev) => new Set([...prev, pick.market_id]))}
+                              >
+                                Skip
+                              </button>
+                              <button
+                                className="button button--primary"
+                                type="button"
+                                disabled={Boolean(paperActionBlockedReason) || bettingId === pick.market_id}
+                                onClick={() => setPendingBet({ pick, size: betSize })}
+                              >
+                                {bettingId === pick.market_id ? 'Placing...' : 'Bet on Paper'}
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <ConfirmationModal

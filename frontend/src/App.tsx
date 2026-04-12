@@ -79,6 +79,7 @@ function App() {
           ) : (
             <PositionsPage
               positions={dashboard.positions}
+              portfolioSummary={dashboard.paperSummary}
               sessionUser={dashboard.sessionUser}
               actionBlockedReason={dashboard.paperActionBlockedReason}
               pausedCategories={dashboard.pausedCategories}
