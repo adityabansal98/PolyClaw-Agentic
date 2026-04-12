@@ -788,26 +788,28 @@ textarea {
 /* ── Tab toggle (pill strip) ── */
 .tab-toggle {
   display: flex;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 9999px;
-  padding: 0.25rem;
-  gap: 0.1rem;
+  padding: 4px;
+  gap: 2px;
 }
 
 .tab-toggle__item {
   all: unset;
   cursor: pointer;
-  padding: 0.5rem 1.4rem;
+  padding: 8px 24px;
   border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .tab-toggle__item:hover {
@@ -815,22 +817,25 @@ textarea {
 }
 
 .tab-toggle__item--active {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.14);
   color: var(--text-strong);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .tab-toggle__badge {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--text-soft);
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--text-muted);
   font-size: 0.65rem;
-  padding: 0.1rem 0.45rem;
+  min-width: 20px;
+  text-align: center;
+  padding: 1px 6px;
   border-radius: 9999px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tab-toggle__item--active .tab-toggle__badge {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.22);
   color: var(--text-strong);
 }
 
