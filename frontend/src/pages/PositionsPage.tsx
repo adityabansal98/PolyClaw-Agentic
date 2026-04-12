@@ -87,17 +87,17 @@ export function PositionsPage({
         <div className="hero-strip">
           <div>
             <p className="eyebrow">Positions</p>
-            <h1>Monitor live bets, update sizing, and manage category risk</h1>
+            <h1>Monitor paper-backed bets, update sizing, and manage category risk</h1>
             <p className="muted">
-              Open positions are grouped by category, with direct actions for close, resize, review, and pause
-              controls.
+              Phase 1 keeps the current book paper-backed while live holdings remain unavailable. You can still resize,
+              close, review, and pause categories from here.
             </p>
           </div>
         </div>
 
         <section className="page-with-drawer">
           <div className="page-with-drawer__main">
-            <Panel title="Open live positions" subtitle="Current book exposure and mark-to-market">
+            <Panel title="Open paper positions" subtitle="Current paper-backed exposure and mark-to-market">
               <div className="filter-bar">
                 <input
                   value={search}
@@ -187,7 +187,7 @@ export function PositionsPage({
                   {actionBlockedReason ? (
                     <article className="alert-card alert-card--critical">
                       <div>
-                        <p className="alert-card__title">Execution blocked</p>
+                        <p className="alert-card__title">Paper execution blocked</p>
                         <p className="muted">{actionBlockedReason}</p>
                       </div>
                     </article>
@@ -227,7 +227,7 @@ export function PositionsPage({
                       onClick={() => setModalAction('close')}
                       disabled={Boolean(actionBlockedReason)}
                     >
-                      Close position
+                      Close paper position
                     </button>
                   </div>
 
@@ -267,8 +267,8 @@ export function PositionsPage({
                 </Panel>
               </div>
             ) : (
-              <Panel title="Position detail" subtitle="Select a live position to inspect it">
-                <p className="muted">No live positions match the current search.</p>
+              <Panel title="Position detail" subtitle="Select a paper-backed position to inspect it">
+                <p className="muted">No current positions match the search.</p>
               </Panel>
             )}
           </aside>
@@ -279,17 +279,17 @@ export function PositionsPage({
         open={modalAction !== null}
         title={
           modalAction === 'close'
-            ? 'Close this live position?'
+            ? 'Close this paper position?'
             : modalAction === 'increase'
-              ? 'Increase this live position?'
-              : 'Reduce this live position?'
+              ? 'Increase this paper position?'
+              : 'Reduce this paper position?'
         }
         description={
           modalAction === 'close'
-            ? 'This would submit a closing action to the backend once the execution service is wired in.'
+            ? 'This sends a paper sell order to the backend to close the position.'
             : modalAction === 'increase'
-              ? `Add ${formatCurrency(adjustmentAmount)} of notional exposure to this position.`
-              : `Reduce ${formatCurrency(adjustmentAmount)} of notional exposure from this position.`
+              ? `Add ${formatCurrency(adjustmentAmount)} of paper notional exposure to this position.`
+              : `Reduce ${formatCurrency(adjustmentAmount)} of paper notional exposure from this position.`
         }
         confirmLabel={modalAction === 'close' ? 'Confirm close' : 'Confirm change'}
         confirmTone={modalAction === 'close' ? 'danger' : 'primary'}

@@ -1,4 +1,12 @@
-export function formatCurrency(value: number, digits = 0): string {
+function hasValue(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+export function formatCurrency(value: number | null | undefined, digits = 0): string {
+  if (!hasValue(value)) {
+    return 'N/A'
+  }
+
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
@@ -7,7 +15,11 @@ export function formatCurrency(value: number, digits = 0): string {
   }).format(value)
 }
 
-export function formatSignedCurrency(value: number, digits = 0): string {
+export function formatSignedCurrency(value: number | null | undefined, digits = 0): string {
+  if (!hasValue(value)) {
+    return 'N/A'
+  }
+
   const abs = formatCurrency(Math.abs(value), digits)
   if (value > 0) {
     return `+${abs}`
@@ -20,11 +32,19 @@ export function formatSignedCurrency(value: number, digits = 0): string {
   return abs
 }
 
-export function formatPercent(value: number, digits = 1): string {
+export function formatPercent(value: number | null | undefined, digits = 1): string {
+  if (!hasValue(value)) {
+    return 'N/A'
+  }
+
   return `${(value * 100).toFixed(digits)}%`
 }
 
-export function formatNumber(value: number, digits = 0): string {
+export function formatNumber(value: number | null | undefined, digits = 0): string {
+  if (!hasValue(value)) {
+    return 'N/A'
+  }
+
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
@@ -52,6 +72,10 @@ export function formatRelativeTime(value: string): string {
 }
 
 export function formatCompactCurrency(value: number): string {
+  if (!hasValue(value)) {
+    return 'N/A'
+  }
+
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',

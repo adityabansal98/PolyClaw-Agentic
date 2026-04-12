@@ -88,10 +88,10 @@ export function OperationsPage({
               {services.map((service) => (
                 <article key={service.id} className="service-card">
                   <div className="service-card__header">
-                    <div>
-                      <p className="service-card__title">{service.name}</p>
-                      <p className="muted">{service.description}</p>
-                    </div>
+                  <div>
+                    <p className="service-card__title">{service.name}</p>
+                    <p className="muted">{service.description}</p>
+                  </div>
                     <StatusPill
                       tone={
                         service.status === 'healthy'
@@ -115,7 +115,7 @@ export function OperationsPage({
                     </div>
                     <div>
                       <dt>Heartbeat</dt>
-                      <dd>{formatRelativeTime(service.lastHeartbeatAt)}</dd>
+                      <dd>{service.lastHeartbeatAt ? formatRelativeTime(service.lastHeartbeatAt) : 'Awaiting first sync'}</dd>
                     </div>
                     <div>
                       <dt>Critical</dt>

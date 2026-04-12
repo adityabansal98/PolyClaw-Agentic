@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { Panel } from '../components/Panel'
 import { StatusPill } from '../components/StatusPill'
-import { formatCurrency, formatPercent, formatRelativeTime } from '../lib/format'
+import { formatCompactCurrency, formatCurrency, formatPercent, formatRelativeTime } from '../lib/format'
 import type { Opportunity, PortfolioSummary, Position } from '../lib/types'
 
 interface PaperTradingPageProps {
@@ -22,13 +22,13 @@ export function PaperTradingPage({
   onPromoteOpportunity,
 }: PaperTradingPageProps) {
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(opportunities[0]?.id ?? '')
-  const [stakeOverride, setStakeOverride] = useState(opportunities[0]?.recommendedStake ?? 0)
+  const [stakeOverride, setStakeOverride] = useState(opportunities[0]?.defaultStake ?? 0)
   const [confirmPromotion, setConfirmPromotion] = useState(false)
 
   const selectedOpportunity = opportunities.find((opportunity) => opportunity.id === selectedOpportunityId) ?? null
   const effectiveStakeOverride =
     selectedOpportunity && selectedOpportunity.id !== selectedOpportunityId
-      ? selectedOpportunity.recommendedStake
+      ? selectedOpportunity.defaultStake
       : stakeOverride
 
   return (
@@ -37,10 +37,10 @@ export function PaperTradingPage({
         <div className="hero-strip">
           <div>
             <p className="eyebrow">Paper Trading</p>
-            <h1>Validate ideas before you promote them to live capital</h1>
+            <h1>Validate human-approved ideas before live execution is enabled later</h1>
             <p className="muted">
-              Paper routing stays visible as a first-class workflow so the team can test thesis quality before live
-              execution.
+              This view tracks markets you already routed into paper and the current paper-backed book that results
+              from those actions.
             </p>
           </div>
         </div>
@@ -65,15 +65,15 @@ export function PaperTradingPage({
 
         <section className="page-with-drawer">
           <div className="page-with-drawer__main">
-            <Panel title="Paper-routed opportunities" subtitle="Candidates that should prove themselves before live promotion">
+            <Panel title="Paper-routed opportunities" subtitle="Markets that were papered from the live feed">
               <div className="table-shell">
                 <table className="clickable-table">
                   <thead>
                     <tr>
                       <th>Market</th>
                       <th>Category</th>
-                      <th>Expected return</th>
-                      <th>Confidence</th>
+                      <th>Yes</th>
+                      <th>No</th>
                       <th>Last review</th>
                     </tr>
                   </thead>
@@ -84,17 +84,17 @@ export function PaperTradingPage({
                         className={selectedOpportunity?.id === opportunity.id ? 'is-selected' : ''}
                         onClick={() => {
                           setSelectedOpportunityId(opportunity.id)
-                          setStakeOverride(opportunity.recommendedStake)
+                          setStakeOverride(opportunity.defaultStake)
                         }}
-                      >
-                        <td>{opportunity.question}</td>
-                        <td>{opportunity.category}</td>
-                        <td>{formatPercent(opportunity.expectedReturn)}</td>
-                        <td>{formatPercent(opportunity.confidence)}</td>
-                        <td>{formatRelativeTime(opportunity.lastUpdatedAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
+                        >
+                          <td>{opportunity.question}</td>
+                          <td>{opportunity.category}</td>
+                          <td>{formatPercent(opportunity.yesPrice)}</td>
+                          <td>{formatPercent(opportunity.noPrice)}</td>
+                          <td>{formatRelativeTime(opportunity.lastUpdatedAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
                 </table>
               </div>
             </Panel>
@@ -133,13 +133,13 @@ export function PaperTradingPage({
                 <Panel title="Promotion candidate" subtitle={selectedOpportunity.question}>
                   <div className="detail-grid">
                     <article className="metric-card">
-                      <p className="metric-card__label">Expected return</p>
-                      <strong>{formatPercent(selectedOpportunity.expectedReturn)}</strong>
-                      <span>{formatPercent(selectedOpportunity.edge)} edge</span>
+                      <p className="metric-card__label">Liquidity</p>
+                      <strong>{formatCompactCurrency(selectedOpportunity.liquidity)}</strong>
+                      <span>{formatCompactCurrency(selectedOpportunity.marketDepth)} depth</span>
                     </article>
                     <article className="metric-card">
-                      <p className="metric-card__label">Paper confidence</p>
-                      <strong>{formatPercent(selectedOpportunity.confidence)}</strong>
+                      <p className="metric-card__label">Paper status</p>
+                      <strong>{selectedOpportunity.statusLabel}</strong>
                       <span>{selectedOpportunity.statusLabel}</span>
                     </article>
                   </div>
@@ -147,14 +147,17 @@ export function PaperTradingPage({
                   <div className="copy-block">
                     <p className="copy-block__label">Promotion logic</p>
                     <p>
-                      This opportunity can stay in paper until the signal remains stable across multiple refresh windows.
-                      Once promoted, it will re-enter the live approval flow with a fresh execution confirmation.
+                      Keep this market in paper until your team is comfortable with the thesis and the future live
+                      trading path is wired. Promotion stays disabled in this milestone by design.
                     </p>
                   </div>
 
                   <div className="copy-block">
-                    <p className="copy-block__label">Current thesis</p>
-                    <p>{selectedOpportunity.thesis}</p>
+                    <p className="copy-block__label">Current strategy status</p>
+                    <p>
+                      Recommendation text is unavailable for now. Use the live market detail, notes, and uploaded
+                      research to decide whether this papered market deserves future live logic.
+                    </p>
                   </div>
 
                   <div className="pill-row">
@@ -182,7 +185,7 @@ export function PaperTradingPage({
                     />
                   </label>
                   <p className="muted">
-                    Suggested live sizing starts at {formatCurrency(selectedOpportunity.recommendedStake)} and can be
+                    Suggested live sizing starts at {formatCurrency(selectedOpportunity.defaultStake)} and can be
                     overridden before promotion.
                   </p>
 
@@ -191,7 +194,7 @@ export function PaperTradingPage({
                       className="button button--primary"
                       type="button"
                       onClick={() => setConfirmPromotion(true)}
-                      disabled={Boolean(actionBlockedReason)}
+                      disabled
                     >
                       Promote to live
                     </button>
@@ -210,9 +213,9 @@ export function PaperTradingPage({
       <ConfirmationModal
         open={confirmPromotion}
         title="Promote this paper trade to the live book?"
-        description="This mirrors the paper-tested setup into the live approval path and records the user who promoted it."
+        description="Live execution is intentionally disabled in this milestone, so this remains a future-phase placeholder."
         confirmLabel="Promote now"
-        disabled={Boolean(actionBlockedReason)}
+        disabled
         onCancel={() => setConfirmPromotion(false)}
         onConfirm={() => {
           if (selectedOpportunity) {

@@ -14,6 +14,7 @@ app = Flask(__name__, static_folder=str(STATIC_DIR))
 _gamma = None
 _clob = None
 _trader = None
+_dashboard_service = None
 
 
 def get_gamma():
@@ -46,6 +47,19 @@ def get_trader():
             clob=get_clob(),
         )
     return _trader
+
+
+def get_dashboard_service():
+    global _dashboard_service
+    if _dashboard_service is None:
+        from polyclaw.web.dashboard_service import DashboardService
+
+        _dashboard_service = DashboardService(
+            gamma=get_gamma(),
+            clob=get_clob(),
+            trader=get_trader(),
+        )
+    return _dashboard_service
 
 
 def frontend_entry_dir() -> Path:
@@ -112,6 +126,39 @@ def search_markets():
     )
 
 
+@app.route("/api/dashboard/overview")
+def dashboard_overview():
+    try:
+        return jsonify(get_dashboard_service().build_overview())
+    except Exception as exc:
+        logger.exception("Failed to build dashboard overview")
+        return jsonify({"error": str(exc)}), 503
+
+
+@app.route("/api/opportunities")
+def list_opportunities():
+    try:
+        limit = int(request.args.get("limit", 36))
+        return jsonify(get_dashboard_service().list_opportunities(limit=limit))
+    except Exception as exc:
+        logger.exception("Failed to list opportunities")
+        return jsonify({"error": str(exc)}), 503
+
+
+@app.route("/api/opportunities/<market_id>")
+def opportunity_detail(market_id: str):
+    try:
+        detail = get_dashboard_service().get_opportunity_detail(market_id)
+    except Exception as exc:
+        logger.exception("Failed to load opportunity detail for %s", market_id)
+        return jsonify({"error": str(exc)}), 503
+
+    if detail is None:
+        return jsonify({"error": f"Unknown opportunity {market_id}"}), 404
+
+    return jsonify(detail)
+
+
 @app.route("/api/orderbook/<token_id>")
 def get_orderbook(token_id):
     try:
@@ -124,19 +171,34 @@ def get_orderbook(token_id):
                 "best_ask": ob.best_ask,
                 "spread": ob.spread,
                 "midpoint": ob.midpoint,
+                "updatedAt": ob.timestamp,
                 "bids": [{"price": l.price, "size": l.size} for l in ob.bids[:15]],
                 "asks": [{"price": l.price, "size": l.size} for l in ob.asks[:15]],
             }
         )
     except Exception as e:
-        return jsonify({"error": str(e)})
+        logger.exception("Failed to fetch orderbook for %s", token_id)
+        return jsonify({"error": str(e)}), 503
 
 
 @app.route("/api/trade", methods=["POST"])
 def place_trade():
     from polyclaw.trading.models import Side, TradeOrder, TradeOrderType
 
-    req = request.json
+    req = request.json or {}
+    environment = req.get("environment", "paper")
+    if environment != "paper":
+        return (
+            jsonify(
+                {
+                    "error": "Live execution is disabled in Phase 1.",
+                    "paperExecutionAvailable": True,
+                    "liveExecutionAvailable": False,
+                }
+            ),
+            501,
+        )
+
     order = TradeOrder(
         token_id=req["token_id"],
         market_id=req.get("market_id", ""),
@@ -148,6 +210,8 @@ def place_trade():
         size=req["size"],
     )
     result = get_trader().place_order(order)
+    get_dashboard_service().invalidate_paper_state()
+    get_dashboard_service().invalidate_market_state(req.get("market_id"))
     return jsonify(
         {
             "order_id": result.order_id,
@@ -156,35 +220,29 @@ def place_trade():
             "filled_size": result.filled_size,
             "total_cost": result.total_cost,
             "message": result.message,
+            "environment": environment,
         }
     )
+
+
+@app.route("/api/positions")
+def get_positions():
+    environment = request.args.get("environment", "paper")
+    try:
+        return jsonify(get_dashboard_service().list_positions(environment=environment))
+    except Exception as exc:
+        logger.exception("Failed to fetch positions for %s", environment)
+        return jsonify({"error": str(exc)}), 503
 
 
 @app.route("/api/portfolio")
 def get_portfolio():
-    p = get_trader().get_portfolio()
-    return jsonify(
-        {
-            "cash_balance": p.cash_balance,
-            "total_position_value": p.total_position_value,
-            "total_equity": p.total_equity,
-            "total_realized_pnl": p.total_realized_pnl,
-            "total_unrealized_pnl": p.total_unrealized_pnl,
-            "positions": [
-                {
-                    "token_id": pos.token_id,
-                    "market_id": pos.market_id,
-                    "market_question": pos.market_question,
-                    "outcome": pos.outcome,
-                    "shares": pos.shares,
-                    "avg_entry_price": pos.avg_entry_price,
-                    "current_price": pos.current_price,
-                    "unrealized_pnl": pos.unrealized_pnl,
-                }
-                for pos in p.positions
-            ],
-        }
-    )
+    environment = request.args.get("environment", "paper")
+    try:
+        return jsonify(get_dashboard_service().get_portfolio(environment=environment))
+    except Exception as exc:
+        logger.exception("Failed to fetch portfolio for %s", environment)
+        return jsonify({"error": str(exc)}), 503
 
 
 @app.route("/api/reset", methods=["POST"])
@@ -192,6 +250,7 @@ def reset_portfolio():
     from polyclaw.config import settings
 
     get_trader().reset()
+    get_dashboard_service().invalidate_paper_state()
     return jsonify({"message": "Paper trading reset", "balance": settings.paper_starting_balance})
 
 

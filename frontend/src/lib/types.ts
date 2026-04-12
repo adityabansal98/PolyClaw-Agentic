@@ -2,11 +2,13 @@ export type NavSection = 'overview' | 'opportunities' | 'positions' | 'paper' | 
 export type ServiceStatus = 'healthy' | 'degraded' | 'down'
 export type Environment = 'live' | 'paper'
 export type OpportunityStage = 'new' | 'paper' | 'approved' | 'rejected' | 'executed'
-export type PositionStatus = 'open' | 'watch' | 'review' | 'paused' | 'closed'
+export type PositionStatus = 'open' | 'review' | 'closed'
 export type NoteContext = 'decision' | 'risk' | 'operations'
 export type UserRole = 'trader' | 'analyst' | 'operator'
 export type LogLevel = 'info' | 'warning' | 'error'
 export type AttachmentType = 'link' | 'file'
+export type OpportunitySide = 'YES' | 'NO'
+export type AlertTone = 'neutral' | 'warning' | 'critical'
 
 export interface UserAccount {
   id: string
@@ -43,56 +45,76 @@ export interface ResearchAttachment {
   uploadedAt: string
 }
 
+export interface OpportunityOutcome {
+  name: string
+  tokenId?: string
+  price: number | null
+  bestBid?: number | null
+  bestAsk?: number | null
+  spreadBps?: number | null
+  depth?: number
+  midpoint?: number | null
+}
+
 export interface Opportunity {
   id: string
   question: string
+  slug?: string
   category: string
   marketType: string
-  side: 'YES' | 'NO'
-  marketProbability: number
-  modelProbability: number
-  edge: number
-  expectedReturn: number
-  confidence: number
-  liquidity: number
-  volume24h: number
-  marketDepth: number
-  spreadBps: number
-  urgencyScore: number
-  signalStrength: number
+  statusLabel: string
+  currentStage: OpportunityStage
   discoveredAt: string
   lastUpdatedAt: string
-  resolutionDate: string
+  resolutionDate: string | null
   timeHorizon: string
-  recommendedStake: number
+  liquidity: number
+  volume24h: number
+  volume: number
+  marketDepth: number
+  spreadBps: number | null
+  urgencyScore: number
+  yesPrice: number | null
+  noPrice: number | null
+  bestBid: number | null
+  bestAsk: number | null
+  defaultStake: number
   maxStake: number
-  entryPriceMin: number
-  entryPriceMax: number
-  slippageLimitBps: number
-  currentStage: OpportunityStage
-  statusLabel: string
-  strategySummary: string
-  thesis: string
-  invalidation: string
+  entryPriceMin: number | null
+  entryPriceMax: number | null
+  recommendedOutcome: OpportunitySide | null
+  expectedReturn: number | null
+  confidence: number | null
+  signalStrength: number | null
+  strategyAvailable: boolean
+  strategySummary: string | null
+  thesis: string | null
+  invalidation: string | null
   riskFlags: string[]
   tags: string[]
-  relatedExposure: number
-  correlationWarning?: string
-  reviewer?: string
-  reviewedAt?: string
+  tokenIds: Partial<Record<OpportunitySide, string>>
+  outcomes: OpportunityOutcome[]
   priceHistory: number[]
   notes: DecisionNote[]
   attachments: ResearchAttachment[]
+  reviewer?: string
+  reviewedAt?: string
+  description?: string | null
+  eventTitle?: string | null
+  eventSlug?: string | null
+  defaultTokenId?: string | null
 }
 
 export interface Position {
   id: string
-  opportunityId?: string
+  tokenId: string
+  marketId: string
   environment: Environment
   question: string
   category: string
   marketType: string
-  side: 'YES' | 'NO'
+  side: OpportunitySide
+  outcome: string
   shares: number
   stake: number
   entryPrice: number
@@ -117,7 +139,7 @@ export interface ServiceHealth {
   description: string
   status: ServiceStatus
   latencyMs: number
-  lastHeartbeatAt: string
+  lastHeartbeatAt: string | null
   owner: string
   critical: boolean
 }
@@ -129,41 +151,121 @@ export interface LogEvent {
   source: string
   message: string
   user?: string
-  actionRequired?: boolean
 }
 
 export interface AlertItem {
   id: string
-  tone: 'neutral' | 'warning' | 'critical'
+  tone: AlertTone
   title: string
   description: string
 }
 
 export interface PortfolioSummary {
   environment: Environment
-  totalReturnImmediate: number
+  available: boolean
+  totalReturnImmediate: number | null
   openExposure: number
-  availableCapital: number
+  availableCapital: number | null
   activePositions: number
   pendingApprovals: number
-  realizedPnl: number
-  unrealizedPnl: number
-  dailyPnl: number
+  realizedPnl: number | null
+  unrealizedPnl: number | null
+  dailyPnl: number | null
   liquidationValue: number
 }
 
-export interface DashboardState {
-  liveCashBalance: number
-  paperCashBalance: number
-  liveRealizedPnl: number
-  paperRealizedPnl: number
-  opportunities: Opportunity[]
-  livePositions: Position[]
-  paperPositions: Position[]
-  services: ServiceHealth[]
-  logs: LogEvent[]
-  pausedCategories: string[]
-  killSwitchEnabled: boolean
+export interface FreshnessEntry {
+  name: string
+  available: boolean
+  stale: boolean
+  updatedAt: string | null
+  ageSeconds: number | null
+  error: string | null
+}
+
+export interface BackendHealthSummary {
+  status: ServiceStatus
+  paperExecutionAvailable: boolean
+  liveExecutionAvailable: boolean
+  liveHoldingsAvailable: boolean
+}
+
+export interface OverviewPayload {
+  generatedAt: string
   lastRefreshAt: string
-  refreshCount: number
+  backendHealthSummary: BackendHealthSummary
+  dataFreshness: {
+    opportunities: FreshnessEntry
+    portfolio: FreshnessEntry
+    positions: FreshnessEntry
+  }
+  paperSummary: PortfolioSummary
+  liveSummary: PortfolioSummary
+  paperPositionsCount: number
+  pendingOpportunityCount: number
+  alerts: AlertItem[]
+  services: ServiceHealth[]
+}
+
+export interface OpportunitiesPayload {
+  generatedAt: string
+  freshness: FreshnessEntry
+  paperExecutionAvailable: boolean
+  liveExecutionAvailable: boolean
+  items: Opportunity[]
+  total: number
+}
+
+export interface PositionsPayload {
+  generatedAt: string
+  environment: Environment
+  available: boolean
+  message?: string
+  freshness?: FreshnessEntry
+  items: Position[]
+}
+
+export interface PortfolioPayload {
+  generatedAt: string
+  environment: Environment
+  available: boolean
+  message?: string
+  freshness?: FreshnessEntry
+  cash_balance: number | null
+  total_position_value: number
+  total_equity: number | null
+  total_realized_pnl: number | null
+  total_unrealized_pnl: number | null
+  total_return_immediate: number | null
+  open_exposure: number
+  available_capital: number | null
+  active_positions: number
+  pending_approvals: number
+  daily_pnl: number | null
+  liquidation_value: number
+}
+
+export interface OrderbookSnapshot {
+  token_id: string
+  market_id: string
+  best_bid: number | null
+  best_ask: number | null
+  spread: number | null
+  midpoint: number | null
+  updatedAt?: number | null
+  bids: Array<{ price: number; size: number }>
+  asks: Array<{ price: number; size: number }>
+  error?: string
+}
+
+export interface TradePayload {
+  environment: Environment
+  token_id: string
+  market_id: string
+  question: string
+  outcome: string
+  side: 'BUY' | 'SELL'
+  size: number
+  price?: number
+  opportunityId?: string
 }

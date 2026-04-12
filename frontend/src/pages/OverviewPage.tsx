@@ -1,5 +1,10 @@
-import { formatCompactCurrency, formatCurrency, formatPercent, formatRelativeTime, formatSignedCurrency } from '../lib/format'
-import type { AlertItem, Opportunity, PortfolioSummary, Position, ServiceHealth } from '../lib/types'
+import {
+  formatCompactCurrency,
+  formatCurrency,
+  formatRelativeTime,
+  formatSignedCurrency,
+} from '../lib/format'
+import type { AlertItem, FreshnessEntry, Opportunity, PortfolioSummary, Position, ServiceHealth } from '../lib/types'
 import { KpiCard } from '../components/KpiCard'
 import { Panel } from '../components/Panel'
 import { StatusPill } from '../components/StatusPill'
@@ -12,6 +17,12 @@ interface OverviewPageProps {
   alerts: AlertItem[]
   services: ServiceHealth[]
   lastRefreshAt: string
+  liveHoldingsAvailable: boolean
+  freshness: {
+    opportunities: FreshnessEntry
+    portfolio: FreshnessEntry
+    positions: FreshnessEntry
+  }
   onNavigate: (target: 'opportunities' | 'positions' | 'paper' | 'operations') => void
 }
 
@@ -23,6 +34,8 @@ export function OverviewPage({
   alerts,
   services,
   lastRefreshAt,
+  liveHoldingsAvailable,
+  freshness,
   onNavigate,
 }: OverviewPageProps) {
   const topOpportunities = opportunities
@@ -43,10 +56,10 @@ export function OverviewPage({
       <div className="hero-strip">
         <div>
           <p className="eyebrow">Overview</p>
-          <h1>Portfolio control and pre-trade decision flow</h1>
+          <h1>Live market feed plus paper-backed portfolio control</h1>
           <p className="muted">
-            Auto-refresh is on. Last full refresh {formatRelativeTime(lastRefreshAt)} with separate live and paper
-            views.
+            Auto-refresh is on. Last full refresh {formatRelativeTime(lastRefreshAt)}. Live opportunities come from
+            Polymarket now, while current holdings stay paper-backed in Phase 1.
           </p>
         </div>
         <div className="hero-strip__actions">
@@ -54,7 +67,7 @@ export function OverviewPage({
             Review opportunities
           </button>
           <button className="button button--primary" type="button" onClick={() => onNavigate('positions')}>
-            Inspect live positions
+            Inspect current positions
           </button>
         </div>
       </div>
@@ -62,39 +75,39 @@ export function OverviewPage({
       <section className="kpi-grid">
         <KpiCard
           label="Total return if liquidated now"
-          value={formatCurrency(liveSummary.totalReturnImmediate)}
-          delta={formatSignedCurrency(liveSummary.dailyPnl)}
-          helper="Live book mark-to-market"
-          trend={positions.slice(0, 3).flatMap((position) => position.priceHistory.slice(-2))}
+          value={formatCurrency(paperSummary.totalReturnImmediate)}
+          delta={formatSignedCurrency(paperSummary.dailyPnl)}
+          helper="Paper-backed current book"
+          trend={positions.slice(0, 3).flatMap((position) => position.priceHistory.slice(-2)).slice(-6)}
           tone="amber"
           emphasis
         />
         <KpiCard
           label="Open exposure"
-          value={formatCurrency(liveSummary.openExposure)}
-          delta={`${liveSummary.activePositions} live positions`}
-          helper="Committed live notional"
-          trend={positions.map((position) => position.stake / 10000)}
+          value={formatCurrency(paperSummary.openExposure)}
+          delta={`${paperSummary.activePositions} paper-backed positions`}
+          helper="Committed current notional"
+          trend={positions.map((position) => position.stake / 10000).slice(-6)}
           tone="blue"
         />
         <KpiCard
           label="Available capital"
-          value={formatCurrency(liveSummary.availableCapital)}
-          delta={`${liveSummary.pendingApprovals} awaiting review`}
-          helper="Cash available for new live approvals"
+          value={formatCurrency(paperSummary.availableCapital)}
+          delta={`${paperSummary.activePositions} active positions`}
+          helper="Cash available for new paper trades"
           trend={[
-            liveSummary.availableCapital / 100000,
-            (liveSummary.availableCapital - 1800) / 100000,
-            liveSummary.availableCapital / 100000,
+            (paperSummary.availableCapital ?? 0) / 100000,
+            ((paperSummary.availableCapital ?? 0) - 1800) / 100000,
+            (paperSummary.availableCapital ?? 0) / 100000,
           ]}
           tone="teal"
         />
         <KpiCard
-          label="Paper PnL"
-          value={formatCurrency(paperSummary.totalReturnImmediate)}
-          delta={formatSignedCurrency(paperSummary.dailyPnl)}
-          helper="Validation before live promotion"
-          trend={positions.slice(0, 2).flatMap((position) => position.priceHistory.slice(-2))}
+          label="Live holdings"
+          value={liveHoldingsAvailable ? formatCurrency(liveSummary.openExposure) : 'Unavailable'}
+          delta={liveHoldingsAvailable ? `${liveSummary.activePositions} live positions` : 'Phase 2'}
+          helper="Real live account reading lands after Data API integration"
+          trend={opportunities.slice(0, 3).flatMap((opportunity) => opportunity.priceHistory.slice(-2)).slice(-6)}
           tone="blue"
         />
       </section>
@@ -123,7 +136,7 @@ export function OverviewPage({
 
         <Panel
           title="Top opportunities"
-          subtitle="Highest-signal candidate bets requiring review"
+          subtitle="Highest-volume categorized live markets requiring review"
           action={
             <button className="button button--primary" type="button" onClick={() => onNavigate('opportunities')}>
               Open queue
@@ -141,7 +154,7 @@ export function OverviewPage({
                 </div>
                 <div className="list-row__meta">
                   <StatusPill tone="info">{opportunity.statusLabel}</StatusPill>
-                  <span>{formatPercent(opportunity.expectedReturn)}</span>
+                  <span>{formatCompactCurrency(opportunity.liquidity)}</span>
                 </div>
               </article>
             ))}
@@ -151,8 +164,8 @@ export function OverviewPage({
 
       <section className="overview-grid overview-grid--dense">
         <Panel
-          title="Live positions"
-          subtitle="Existing book with current mark-to-market"
+          title="Current positions"
+          subtitle="Paper-backed existing book with current mark-to-market"
           action={
             <button className="button button--ghost" type="button" onClick={() => onNavigate('positions')}>
               View all
@@ -185,7 +198,7 @@ export function OverviewPage({
           </div>
         </Panel>
 
-        <Panel title="Exposure map" subtitle="Current live concentration by category">
+        <Panel title="Exposure map" subtitle="Current paper-backed concentration by category">
           <div className="bar-stack">
             {exposureRows.map(([category, exposure]) => (
               <div key={category} className="bar-row">
@@ -203,14 +216,45 @@ export function OverviewPage({
       </section>
 
       <section className="overview-grid overview-grid--dense">
-        <Panel title="Health snapshot" subtitle="Critical services that gate execution safety">
+        <Panel title="Health snapshot" subtitle="Backend freshness and execution safety gates">
+          <div className="split-metrics">
+            <article className="metric-card">
+              <p className="metric-card__label">Opportunities</p>
+              <strong>{freshness.opportunities.stale ? 'Stale' : 'Fresh'}</strong>
+              <span>
+                {freshness.opportunities.updatedAt
+                  ? `Updated ${formatRelativeTime(freshness.opportunities.updatedAt)}`
+                  : 'Awaiting first sync'}
+              </span>
+            </article>
+            <article className="metric-card">
+              <p className="metric-card__label">Portfolio</p>
+              <strong>{freshness.portfolio.stale ? 'Stale' : 'Fresh'}</strong>
+              <span>
+                {freshness.portfolio.updatedAt
+                  ? `Updated ${formatRelativeTime(freshness.portfolio.updatedAt)}`
+                  : 'Awaiting first sync'}
+              </span>
+            </article>
+            <article className="metric-card">
+              <p className="metric-card__label">Positions</p>
+              <strong>{freshness.positions.stale ? 'Stale' : 'Fresh'}</strong>
+              <span>
+                {freshness.positions.updatedAt
+                  ? `Updated ${formatRelativeTime(freshness.positions.updatedAt)}`
+                  : 'Awaiting first sync'}
+              </span>
+            </article>
+          </div>
+
           <div className="service-list">
             {criticalServices.map((service) => (
               <article key={service.id} className="service-row">
                 <div>
                   <p className="list-row__title">{service.name}</p>
                   <p className="muted">
-                    {service.description} · heartbeat {formatRelativeTime(service.lastHeartbeatAt)}
+                    {service.description} · heartbeat{' '}
+                    {service.lastHeartbeatAt ? formatRelativeTime(service.lastHeartbeatAt) : 'Awaiting first sync'}
                   </p>
                 </div>
                 <div className="service-row__meta">
@@ -232,15 +276,15 @@ export function OverviewPage({
           </div>
         </Panel>
 
-        <Panel title="Desk split" subtitle="Live and paper balances side by side">
+        <Panel title="Desk split" subtitle="What is real now versus what arrives in Phase 2">
           <div className="split-metrics">
             <article className="metric-card">
-              <p className="metric-card__label">Live</p>
-              <strong>{formatCurrency(liveSummary.availableCapital)}</strong>
-              <span>{formatCurrency(liveSummary.liquidationValue)} liquidation value</span>
+              <p className="metric-card__label">Live feed</p>
+              <strong>{opportunities.length}</strong>
+              <span>Categorized opportunities available for review</span>
             </article>
             <article className="metric-card">
-              <p className="metric-card__label">Paper</p>
+              <p className="metric-card__label">Paper portfolio</p>
               <strong>{formatCurrency(paperSummary.availableCapital)}</strong>
               <span>{formatCurrency(paperSummary.liquidationValue)} simulated value</span>
             </article>

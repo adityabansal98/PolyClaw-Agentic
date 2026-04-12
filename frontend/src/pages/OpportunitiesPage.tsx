@@ -1,44 +1,69 @@
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useEffect, useEffectEvent, useState } from 'react'
 
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { Panel } from '../components/Panel'
 import { StatusPill } from '../components/StatusPill'
 import { formatCompactCurrency, formatCurrency, formatPercent, formatRelativeTime } from '../lib/format'
-import type { Opportunity, SessionUser } from '../lib/types'
+import type { Opportunity, OpportunitySide, OrderbookSnapshot, SessionUser } from '../lib/types'
 
-type RankMetric = 'expectedReturn' | 'confidence' | 'urgencyScore' | 'liquidity'
+type RankMetric = 'volume24h' | 'liquidity' | 'tightness' | 'urgencyScore'
 
 interface OpportunitiesPageProps {
   opportunities: Opportunity[]
+  opportunityDetails: Record<string, Opportunity>
+  orderbooks: Record<string, OrderbookSnapshot>
   sessionUser: SessionUser
-  actionBlockedReason: string | null
+  paperActionBlockedReason: string | null
+  liveActionBlockedReason: string | null
   pausedCategories: string[]
+  detailRefreshMs: number
+  paperExecutionAvailable: boolean
+  liveExecutionAvailable: boolean
   onApproveLive: (opportunityId: string, stakeOverride: number) => void
-  onSendToPaper: (opportunityId: string, stakeOverride: number) => void
+  onSendToPaper: (opportunityId: string, side: OpportunitySide, stakeOverride: number) => void
   onReject: (opportunityId: string) => void
   onAddNote: (opportunityId: string, text: string) => void
   onAddLink: (opportunityId: string, title: string, url: string) => void
   onAddFile: (opportunityId: string, file: File) => void
+  onLoadDetail: (opportunityId: string) => Promise<Opportunity | null> | Opportunity | null | void
+  onLoadOrderbook: (tokenId: string) => Promise<OrderbookSnapshot | null> | OrderbookSnapshot | null | void
+}
+
+function rankValue(opportunity: Opportunity, metric: RankMetric) {
+  if (metric === 'tightness') {
+    return opportunity.spreadBps ? 100000 - opportunity.spreadBps : 0
+  }
+
+  return opportunity[metric] ?? 0
 }
 
 export function OpportunitiesPage({
   opportunities,
+  opportunityDetails,
+  orderbooks,
   sessionUser,
-  actionBlockedReason,
+  paperActionBlockedReason,
+  liveActionBlockedReason,
   pausedCategories,
+  detailRefreshMs,
+  paperExecutionAvailable,
+  liveExecutionAvailable,
   onApproveLive,
   onSendToPaper,
   onReject,
   onAddNote,
   onAddLink,
   onAddFile,
+  onLoadDetail,
+  onLoadOrderbook,
 }: OpportunitiesPageProps) {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('All')
   const [status, setStatus] = useState('All')
-  const [rankBy, setRankBy] = useState<RankMetric>('expectedReturn')
+  const [rankBy, setRankBy] = useState<RankMetric>('volume24h')
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(opportunities[0]?.id ?? '')
-  const [stakeOverride, setStakeOverride] = useState<number>(opportunities[0]?.recommendedStake ?? 0)
+  const [selectedSide, setSelectedSide] = useState<OpportunitySide>('YES')
+  const [stakeOverride, setStakeOverride] = useState<number>(opportunities[0]?.defaultStake ?? 1000)
   const [noteDraft, setNoteDraft] = useState('')
   const [linkTitle, setLinkTitle] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
@@ -63,16 +88,70 @@ export function OpportunitiesPage({
         opportunity.tags.join(' ').toLowerCase().includes(query)
       )
     })
-    .sort((left, right) => right[rankBy] - left[rankBy])
+    .sort((left, right) => rankValue(right, rankBy) - rankValue(left, rankBy))
 
-  const selectedOpportunity = filtered.find((opportunity) => opportunity.id === selectedOpportunityId) ?? filtered[0] ?? null
+  const activeOpportunityId = selectedOpportunityId || filtered[0]?.id || ''
+  const selectedSummary = filtered.find((opportunity) => opportunity.id === activeOpportunityId) ?? filtered[0] ?? null
+  const selectedOpportunity = selectedSummary ? (opportunityDetails[selectedSummary.id] ?? selectedSummary) : null
+  const defaultSide =
+    (selectedOpportunity?.recommendedOutcome ??
+      (selectedOpportunity?.tokenIds.YES ? 'YES' : selectedOpportunity?.tokenIds.NO ? 'NO' : 'YES')) as OpportunitySide
+  const effectiveSide = selectedOpportunity?.tokenIds[selectedSide] ? selectedSide : defaultSide
   const effectiveStakeOverride =
-    selectedOpportunity && selectedOpportunity.id !== selectedOpportunityId
-      ? selectedOpportunity.recommendedStake
-      : stakeOverride
+    selectedOpportunity && activeOpportunityId !== selectedOpportunityId ? selectedOpportunity.defaultStake : stakeOverride
+
+  const syncDetail = useEffectEvent(() => {
+    if (!activeOpportunityId) {
+      return
+    }
+
+    void onLoadDetail(activeOpportunityId)
+  })
+
+  useEffect(() => {
+    if (!activeOpportunityId) {
+      return
+    }
+
+    syncDetail()
+    const timer = window.setInterval(() => {
+      syncDetail()
+    }, detailRefreshMs)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [activeOpportunityId, detailRefreshMs])
+
+  const selectedTokenId = selectedOpportunity?.tokenIds[effectiveSide] ?? selectedOpportunity?.defaultTokenId ?? null
+
+  const syncOrderbook = useEffectEvent(() => {
+    if (!selectedTokenId) {
+      return
+    }
+
+    void onLoadOrderbook(selectedTokenId)
+  })
+
+  useEffect(() => {
+    if (!selectedTokenId) {
+      return
+    }
+
+    syncOrderbook()
+    const timer = window.setInterval(() => {
+      syncOrderbook()
+    }, detailRefreshMs)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [detailRefreshMs, selectedTokenId])
+
+  const selectedOrderbook = selectedTokenId ? orderbooks[selectedTokenId] : null
   const categoryPaused = selectedOpportunity ? pausedCategories.includes(selectedOpportunity.category) : false
-  const blockedReason =
-    actionBlockedReason ?? (categoryPaused ? `${selectedOpportunity?.category} approvals are paused right now.` : null)
+  const paperBlockedReason =
+    paperActionBlockedReason ?? (categoryPaused ? `${selectedOpportunity?.category} is paused right now.` : null)
 
   function submitNote() {
     if (!selectedOpportunity || !noteDraft.trim()) {
@@ -107,12 +186,12 @@ export function OpportunitiesPage({
       return
     }
 
-    if (modalAction === 'live') {
-      onApproveLive(selectedOpportunity.id, effectiveStakeOverride)
+    if (modalAction === 'paper') {
+      onSendToPaper(selectedOpportunity.id, effectiveSide, effectiveStakeOverride)
     }
 
-    if (modalAction === 'paper') {
-      onSendToPaper(selectedOpportunity.id, effectiveStakeOverride)
+    if (modalAction === 'live') {
+      onApproveLive(selectedOpportunity.id, effectiveStakeOverride)
     }
 
     if (modalAction === 'reject') {
@@ -122,23 +201,25 @@ export function OpportunitiesPage({
     setModalAction(null)
   }
 
+  const outcomeRows = selectedOpportunity?.outcomes ?? []
+
   return (
     <>
       <div className="page-stack">
         <div className="hero-strip">
           <div>
             <p className="eyebrow">Opportunities</p>
-            <h1>Review candidate bets before capital is committed</h1>
+            <h1>Review live Polymarket markets before any human-approved paper trade</h1>
             <p className="muted">
-              Sort by expected return, confidence, urgency, or liquidity. Every approval still requires one extra
-              execution confirmation.
+              The table now shows raw live markets, prices, liquidity, and orderbook detail. Strategy fields stay
+              clearly unavailable until the backend research layer is wired in.
             </p>
           </div>
         </div>
 
         <section className="page-with-drawer">
           <div className="page-with-drawer__main">
-            <Panel title="Candidate queue" subtitle="Full table of live and paper-routed opportunities">
+            <Panel title="Candidate queue" subtitle="Categorized live markets from the backend">
               <div className="filter-bar">
                 <input
                   value={search}
@@ -163,10 +244,10 @@ export function OpportunitiesPage({
 
               <div className="segment-control">
                 {([
-                  ['expectedReturn', 'Expected return'],
-                  ['confidence', 'Confidence'],
-                  ['urgencyScore', 'Urgency'],
+                  ['volume24h', '24h volume'],
                   ['liquidity', 'Liquidity'],
+                  ['tightness', 'Tight spread'],
+                  ['urgencyScore', 'Soonest resolve'],
                 ] as const).map(([value, label]) => (
                   <button
                     key={value}
@@ -185,11 +266,11 @@ export function OpportunitiesPage({
                     <tr>
                       <th>Market</th>
                       <th>Category</th>
+                      <th>Yes</th>
+                      <th>No</th>
+                      <th>Liquidity</th>
+                      <th>Spread</th>
                       <th>Stage</th>
-                      <th>EV</th>
-                      <th>Confidence</th>
-                      <th>Rec. stake</th>
-                      <th>Last refresh</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -199,16 +280,17 @@ export function OpportunitiesPage({
                         className={selectedOpportunity?.id === opportunity.id ? 'is-selected' : ''}
                         onClick={() => {
                           setSelectedOpportunityId(opportunity.id)
-                          setStakeOverride(opportunity.recommendedStake)
+                          setSelectedSide(opportunity.tokenIds.YES ? 'YES' : 'NO')
+                          setStakeOverride(opportunity.defaultStake)
                         }}
                       >
                         <td>{opportunity.question}</td>
                         <td>{opportunity.category}</td>
+                        <td>{formatPercent(opportunity.yesPrice)}</td>
+                        <td>{formatPercent(opportunity.noPrice)}</td>
+                        <td>{formatCompactCurrency(opportunity.liquidity)}</td>
+                        <td>{opportunity.spreadBps ? `${opportunity.spreadBps} bps` : 'N/A'}</td>
                         <td>{opportunity.statusLabel}</td>
-                        <td>{formatPercent(opportunity.expectedReturn)}</td>
-                        <td>{formatPercent(opportunity.confidence)}</td>
-                        <td>{formatCurrency(opportunity.recommendedStake)}</td>
-                        <td>{formatRelativeTime(opportunity.lastUpdatedAt)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -223,49 +305,79 @@ export function OpportunitiesPage({
                 <Panel title="Opportunity detail" subtitle={selectedOpportunity.question}>
                   <div className="detail-grid">
                     <article className="metric-card">
-                      <p className="metric-card__label">Expected return</p>
-                      <strong>{formatPercent(selectedOpportunity.expectedReturn)}</strong>
-                      <span>Edge {formatPercent(selectedOpportunity.edge)}</span>
-                    </article>
-                    <article className="metric-card">
-                      <p className="metric-card__label">Confidence</p>
-                      <strong>{formatPercent(selectedOpportunity.confidence)}</strong>
-                      <span>Signal {formatPercent(selectedOpportunity.signalStrength)}</span>
-                    </article>
-                    <article className="metric-card">
-                      <p className="metric-card__label">Market vs model</p>
+                      <p className="metric-card__label">Yes / No</p>
                       <strong>
-                        {formatPercent(selectedOpportunity.marketProbability)} /{' '}
-                        {formatPercent(selectedOpportunity.modelProbability)}
+                        {formatPercent(selectedOpportunity.yesPrice)} / {formatPercent(selectedOpportunity.noPrice)}
                       </strong>
-                      <span>Spread {selectedOpportunity.spreadBps} bps</span>
+                      <span>Live market pricing</span>
                     </article>
                     <article className="metric-card">
                       <p className="metric-card__label">Liquidity</p>
                       <strong>{formatCompactCurrency(selectedOpportunity.liquidity)}</strong>
-                      <span>Depth {formatCompactCurrency(selectedOpportunity.marketDepth)}</span>
+                      <span>{formatCompactCurrency(selectedOpportunity.marketDepth)} top-book depth</span>
+                    </article>
+                    <article className="metric-card">
+                      <p className="metric-card__label">24h volume</p>
+                      <strong>{formatCompactCurrency(selectedOpportunity.volume24h)}</strong>
+                      <span>{selectedOpportunity.spreadBps ? `${selectedOpportunity.spreadBps} bps spread` : 'Spread unavailable'}</span>
+                    </article>
+                    <article className="metric-card">
+                      <p className="metric-card__label">Resolution</p>
+                      <strong>{selectedOpportunity.timeHorizon}</strong>
+                      <span>
+                        {selectedOpportunity.resolutionDate
+                          ? `Ends ${formatRelativeTime(selectedOpportunity.resolutionDate)}`
+                          : 'No resolution time returned'}
+                      </span>
                     </article>
                   </div>
 
                   <div className="pill-row">
                     <StatusPill tone="info">{selectedOpportunity.category}</StatusPill>
                     <StatusPill tone="neutral">{selectedOpportunity.marketType}</StatusPill>
-                    <StatusPill tone={selectedOpportunity.currentStage === 'rejected' ? 'critical' : 'positive'}>
-                      {selectedOpportunity.side}
+                    <StatusPill tone={selectedOpportunity.strategyAvailable ? 'positive' : 'warning'}>
+                      {selectedOpportunity.strategyAvailable ? 'Strategy ready' : 'Strategy unavailable'}
                     </StatusPill>
+                    {!paperExecutionAvailable ? <StatusPill tone="critical">Paper blocked</StatusPill> : null}
+                    {!liveExecutionAvailable ? <StatusPill tone="warning">Live disabled</StatusPill> : null}
                   </div>
 
                   <div className="copy-block">
-                    <p className="copy-block__label">Strategy summary</p>
-                    <p>{selectedOpportunity.strategySummary}</p>
+                    <p className="copy-block__label">Current backend readout</p>
+                    <p>{selectedOpportunity.description || 'This is the raw live market metadata from Polymarket for desk review.'}</p>
                   </div>
+
                   <div className="copy-block">
-                    <p className="copy-block__label">Why the model likes this bet</p>
-                    <p>{selectedOpportunity.thesis}</p>
+                    <p className="copy-block__label">Strategy status</p>
+                    <p>
+                      Expected return, confidence, thesis, and invalidation stay unavailable in this milestone because
+                      the strategy service is not connected yet.
+                    </p>
                   </div>
-                  <div className="copy-block">
-                    <p className="copy-block__label">Invalidation</p>
-                    <p>{selectedOpportunity.invalidation}</p>
+
+                  <div className="table-shell">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Outcome</th>
+                          <th>Price</th>
+                          <th>Best bid</th>
+                          <th>Best ask</th>
+                          <th>Depth</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {outcomeRows.map((outcome) => (
+                          <tr key={`${selectedOpportunity.id}-${outcome.name}`}>
+                            <td>{outcome.name}</td>
+                            <td>{formatPercent(outcome.price)}</td>
+                            <td>{formatPercent(outcome.bestBid)}</td>
+                            <td>{formatPercent(outcome.bestAsk)}</td>
+                            <td>{formatCompactCurrency(outcome.depth ?? 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
 
                   <ul className="tag-list">
@@ -274,29 +386,43 @@ export function OpportunitiesPage({
                     ))}
                   </ul>
 
-                  {selectedOpportunity.correlationWarning ? (
-                    <article className="alert-card alert-card--warning">
-                      <div>
-                        <p className="alert-card__title">Correlation warning</p>
-                        <p className="muted">{selectedOpportunity.correlationWarning}</p>
-                      </div>
-                    </article>
-                  ) : null}
-
-                  {blockedReason ? (
+                  {paperBlockedReason ? (
                     <article className="alert-card alert-card--critical">
                       <div>
-                        <p className="alert-card__title">Execution blocked</p>
-                        <p className="muted">{blockedReason}</p>
+                        <p className="alert-card__title">Paper execution blocked</p>
+                        <p className="muted">{paperBlockedReason}</p>
                       </div>
                     </article>
                   ) : null}
 
+                  {liveActionBlockedReason ? (
+                    <article className="alert-card alert-card--warning">
+                      <div>
+                        <p className="alert-card__title">Live execution unavailable</p>
+                        <p className="muted">{liveActionBlockedReason}</p>
+                      </div>
+                    </article>
+                  ) : null}
+
+                  <div className="segment-control">
+                    {(['YES', 'NO'] as const).map((side) => (
+                      <button
+                        key={side}
+                        className={`segment-control__button ${effectiveSide === side ? 'is-active' : ''}`}
+                        type="button"
+                        onClick={() => setSelectedSide(side)}
+                        disabled={!selectedOpportunity.tokenIds[side]}
+                      >
+                        {side}
+                      </button>
+                    ))}
+                  </div>
+
                   <label>
-                    Stake override
+                    Paper ticket size
                     <input
                       type="number"
-                      min={0}
+                      min={100}
                       max={selectedOpportunity.maxStake}
                       step={100}
                       value={effectiveStakeOverride}
@@ -304,10 +430,8 @@ export function OpportunitiesPage({
                     />
                   </label>
                   <p className="muted">
-                    Recommended {formatCurrency(selectedOpportunity.recommendedStake)} · current input{' '}
-                    {formatCurrency(effectiveStakeOverride)} · max{' '}
-                    {formatCurrency(selectedOpportunity.maxStake)} · entry range{' '}
-                    {formatPercent(selectedOpportunity.entryPriceMin)} - {formatPercent(selectedOpportunity.entryPriceMax)}
+                    Default ticket {formatCurrency(selectedOpportunity.defaultStake)} · suggested ceiling{' '}
+                    {formatCurrency(selectedOpportunity.maxStake)} · selected outcome {effectiveSide}
                   </p>
 
                   <div className="action-row">
@@ -315,22 +439,77 @@ export function OpportunitiesPage({
                       className="button button--ghost"
                       type="button"
                       onClick={() => setModalAction('paper')}
-                      disabled={Boolean(blockedReason)}
+                      disabled={Boolean(paperBlockedReason) || !selectedOpportunity.tokenIds[effectiveSide]}
                     >
                       Send to paper
                     </button>
-                    <button
-                      className="button button--primary"
-                      type="button"
-                      onClick={() => setModalAction('live')}
-                      disabled={Boolean(blockedReason)}
-                    >
+                    <button className="button button--primary" type="button" onClick={() => setModalAction('live')} disabled>
                       Approve live
                     </button>
                     <button className="button button--danger" type="button" onClick={() => setModalAction('reject')}>
                       Reject
                     </button>
                   </div>
+                </Panel>
+
+                <Panel title="Orderbook" subtitle={selectedTokenId ? `Token ${selectedTokenId.slice(0, 12)}...` : 'Select an outcome'}>
+                  {selectedOrderbook ? (
+                    <>
+                      <div className="detail-grid">
+                        <article className="metric-card">
+                          <p className="metric-card__label">Best bid</p>
+                          <strong>{formatPercent(selectedOrderbook.best_bid)}</strong>
+                          <span>Current bid</span>
+                        </article>
+                        <article className="metric-card">
+                          <p className="metric-card__label">Best ask</p>
+                          <strong>{formatPercent(selectedOrderbook.best_ask)}</strong>
+                          <span>Current ask</span>
+                        </article>
+                        <article className="metric-card">
+                          <p className="metric-card__label">Midpoint</p>
+                          <strong>{formatPercent(selectedOrderbook.midpoint)}</strong>
+                          <span>Orderbook midpoint</span>
+                        </article>
+                        <article className="metric-card">
+                          <p className="metric-card__label">Spread</p>
+                          <strong>{formatPercent(selectedOrderbook.spread)}</strong>
+                          <span>Top-of-book spread</span>
+                        </article>
+                      </div>
+
+                      <div className="table-shell">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Bid price</th>
+                              <th>Bid size</th>
+                              <th>Ask price</th>
+                              <th>Ask size</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Array.from({
+                              length: Math.max(selectedOrderbook.bids.length, selectedOrderbook.asks.length, 8),
+                            }).map((_, index) => {
+                              const bid = selectedOrderbook.bids[index]
+                              const ask = selectedOrderbook.asks[index]
+                              return (
+                                <tr key={`${selectedOrderbook.token_id}-${index}`}>
+                                  <td>{formatPercent(bid?.price)}</td>
+                                  <td>{bid ? bid.size.toFixed(0) : 'N/A'}</td>
+                                  <td>{formatPercent(ask?.price)}</td>
+                                  <td>{ask ? ask.size.toFixed(0) : 'N/A'}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="muted">Choose a token side to load the live orderbook.</p>
+                  )}
                 </Panel>
 
                 <Panel title="Desk notes" subtitle={`Logged by ${sessionUser.name}`}>
@@ -350,7 +529,7 @@ export function OpportunitiesPage({
                     <textarea
                       value={noteDraft}
                       onChange={(event) => setNoteDraft(event.target.value)}
-                      placeholder="Capture why you approved, rejected, or routed this to paper."
+                      placeholder="Capture why you papered, skipped, or rejected this live market."
                     />
                   </label>
                   <button className="button button--ghost" type="button" onClick={submitNote}>
@@ -358,7 +537,7 @@ export function OpportunitiesPage({
                   </button>
                 </Panel>
 
-                <Panel title="Research attachments" subtitle="Links and uploaded files that support the decision">
+                <Panel title="Research attachments" subtitle="Links and uploaded files kept on the frontend prototype">
                   <div className="attachment-stack">
                     {selectedOpportunity.attachments.map((attachment) => (
                       <article key={attachment.id} className="list-row">
@@ -377,7 +556,7 @@ export function OpportunitiesPage({
 
                   <label>
                     Link title
-                    <input value={linkTitle} onChange={(event) => setLinkTitle(event.target.value)} placeholder="Model note" />
+                    <input value={linkTitle} onChange={(event) => setLinkTitle(event.target.value)} placeholder="Research memo" />
                   </label>
                   <label>
                     Web link
@@ -395,7 +574,7 @@ export function OpportunitiesPage({
                 </Panel>
               </div>
             ) : (
-              <Panel title="Opportunity detail" subtitle="Select a row from the table to inspect the strategy plan">
+              <Panel title="Opportunity detail" subtitle="Select a live market to inspect the backend detail">
                 <p className="muted">No opportunity matches the current filters.</p>
               </Panel>
             )}
@@ -407,23 +586,21 @@ export function OpportunitiesPage({
         open={modalAction !== null}
         title={
           modalAction === 'live'
-            ? 'Approve this opportunity for live execution?'
+            ? 'Approve this market for live execution?'
             : modalAction === 'paper'
-              ? 'Route this opportunity into paper trading?'
-              : 'Reject this opportunity?'
+              ? 'Submit this market to paper trading?'
+              : 'Reject this market from the local review queue?'
         }
         description={
           modalAction === 'live'
-            ? 'This is the final confirmation before the frontend would hand the execution request to the backend.'
+            ? 'Live execution is intentionally disabled in this milestone, so this button remains a placeholder for Phase 2.'
             : modalAction === 'paper'
-              ? 'This records the decision and stages the opportunity in the paper book for thesis validation.'
-              : 'Rejected opportunities stay visible for traceability but move out of the action queue.'
+              ? `This sends a paper ${effectiveSide} trade to the backend and keeps the final human confirmation gate in the frontend.`
+              : 'Rejected markets stay visible for traceability but move out of the active desk queue.'
         }
-        confirmLabel={
-          modalAction === 'live' ? 'Confirm live approval' : modalAction === 'paper' ? 'Route to paper' : 'Reject'
-        }
+        confirmLabel={modalAction === 'live' ? 'Live unavailable' : modalAction === 'paper' ? 'Submit paper trade' : 'Reject'}
         confirmTone={modalAction === 'reject' ? 'danger' : 'primary'}
-        disabled={Boolean(blockedReason) && modalAction !== 'reject'}
+        disabled={modalAction === 'live' || (modalAction === 'paper' && Boolean(paperBlockedReason))}
         onCancel={() => setModalAction(null)}
         onConfirm={confirmAction}
       />

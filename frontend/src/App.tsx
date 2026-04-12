@@ -34,20 +34,22 @@ function App() {
     )
   }
 
-  const executionHealthy = !dashboard.actionBlockedReason
+  const paperExecutionHealthy = !dashboard.paperActionBlockedReason
   const opportunityCount = dashboard.opportunities.filter((opportunity) => opportunity.currentStage === 'new').length
   const paperCount = dashboard.paperOpportunities.length
-  const positionCount = dashboard.livePositions.length
+  const positionCount = dashboard.positions.length
 
   let page = (
     <OverviewPage
       liveSummary={dashboard.liveSummary}
       paperSummary={dashboard.paperSummary}
-      opportunities={dashboard.opportunities}
-      positions={dashboard.livePositions}
+      opportunities={dashboard.topOpportunities}
+      positions={dashboard.positions}
       alerts={dashboard.alerts}
       services={dashboard.services}
       lastRefreshAt={dashboard.lastRefreshAt}
+      liveHoldingsAvailable={dashboard.liveHoldingsAvailable}
+      freshness={dashboard.freshness}
       onNavigate={setActiveSection}
     />
   )
@@ -56,15 +58,23 @@ function App() {
     page = (
       <OpportunitiesPage
         opportunities={dashboard.opportunities}
+        opportunityDetails={dashboard.opportunityDetails}
+        orderbooks={dashboard.orderbooks}
         sessionUser={dashboard.sessionUser}
-        actionBlockedReason={dashboard.actionBlockedReason}
+        paperActionBlockedReason={dashboard.paperActionBlockedReason}
+        liveActionBlockedReason={dashboard.liveActionBlockedReason}
         pausedCategories={dashboard.pausedCategories}
-        onApproveLive={(id, stake) => dashboard.approveOpportunity(id, stake, 'live')}
-        onSendToPaper={(id, stake) => dashboard.approveOpportunity(id, stake, 'paper')}
+        detailRefreshMs={dashboard.detailRefreshMs}
+        paperExecutionAvailable={dashboard.paperExecutionAvailable}
+        liveExecutionAvailable={dashboard.liveExecutionAvailable}
+        onApproveLive={dashboard.approveOpportunity}
+        onSendToPaper={dashboard.sendToPaper}
         onReject={dashboard.rejectOpportunity}
         onAddNote={dashboard.addOpportunityNote}
         onAddLink={dashboard.addOpportunityLink}
         onAddFile={dashboard.addOpportunityFile}
+        onLoadDetail={dashboard.loadOpportunityDetail}
+        onLoadOrderbook={dashboard.loadOrderbook}
       />
     )
   }
@@ -72,9 +82,9 @@ function App() {
   if (activeSection === 'positions') {
     page = (
       <PositionsPage
-        positions={dashboard.livePositions}
+        positions={dashboard.positions}
         sessionUser={dashboard.sessionUser}
-        actionBlockedReason={dashboard.actionBlockedReason}
+        actionBlockedReason={dashboard.paperActionBlockedReason}
         pausedCategories={dashboard.pausedCategories}
         onClosePosition={dashboard.closePosition}
         onResizePosition={dashboard.resizePosition}
@@ -90,8 +100,8 @@ function App() {
       <PaperTradingPage
         summary={dashboard.paperSummary}
         opportunities={dashboard.paperOpportunities}
-        positions={dashboard.paperPositions}
-        actionBlockedReason={dashboard.actionBlockedReason}
+        positions={dashboard.positions}
+        actionBlockedReason={dashboard.liveActionBlockedReason}
         onPromoteOpportunity={dashboard.promotePaperOpportunity}
       />
     )
@@ -153,12 +163,12 @@ function App() {
 
         <div className="sidebar__footer">
           <div className="sidebar__status">
-            <StatusPill tone="info">Mock API contracts</StatusPill>
-            <StatusPill tone={executionHealthy ? 'positive' : 'critical'}>
-              {executionHealthy ? 'Execution clear' : 'Execution blocked'}
+            <StatusPill tone="info">Live Polymarket feed</StatusPill>
+            <StatusPill tone={paperExecutionHealthy ? 'positive' : 'critical'}>
+              {paperExecutionHealthy ? 'Paper execution clear' : 'Paper execution blocked'}
             </StatusPill>
           </div>
-          <p className="muted">Refresh cadence: 12 seconds</p>
+          <p className="muted">Refresh cadence: 8-12 seconds by data type</p>
         </div>
       </aside>
 
@@ -169,6 +179,9 @@ function App() {
               <StatusPill tone="neutral">Named user auth</StatusPill>
               <StatusPill tone={dashboard.killSwitchEnabled ? 'critical' : 'positive'}>
                 {dashboard.killSwitchEnabled ? 'Kill switch enabled' : 'Kill switch idle'}
+              </StatusPill>
+              <StatusPill tone={dashboard.liveExecutionAvailable ? 'positive' : 'warning'}>
+                {dashboard.liveExecutionAvailable ? 'Live execution wired' : 'Live execution disabled'}
               </StatusPill>
               <StatusPill tone="info">Last refresh {formatRelativeTime(dashboard.lastRefreshAt)}</StatusPill>
             </div>
@@ -188,10 +201,10 @@ function App() {
           </div>
         </header>
 
-        {dashboard.actionBlockedReason ? (
+        {dashboard.paperActionBlockedReason ? (
           <div className="global-banner">
             <StatusPill tone="critical">Safety lock</StatusPill>
-            <p>{dashboard.actionBlockedReason}</p>
+            <p>{dashboard.paperActionBlockedReason}</p>
           </div>
         ) : null}
 
