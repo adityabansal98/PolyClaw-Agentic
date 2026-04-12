@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+CATEGORIES = ("NBA", "Soccer", "Cricket", "Trump", "Elections")
+
+
+@dataclass(frozen=True)
+class CategoryWeights:
+    edge: float
+    confidence: float
+    liquidity: float
+    execution: float
+    momentum: float
+
+
+@dataclass(frozen=True)
+class SelectionConstraints:
+    min_confidence: float = 0.55
+    min_edge: float = 0.015
+    min_liquidity_score: float = 0.20
+    max_spread_bps: float = 450.0
+    max_per_event_group: int = 1
+    max_pairwise_correlation: float = 0.65
+    picks_per_category: int = 5
+
+
+@dataclass(frozen=True)
+class FrameworkConfig:
+    constraints: SelectionConstraints = field(default_factory=SelectionConstraints)
+    base_weights: CategoryWeights = field(
+        default_factory=lambda: CategoryWeights(
+            edge=0.42,
+            confidence=0.23,
+            liquidity=0.16,
+            execution=0.11,
+            momentum=0.08,
+        )
+    )
+    category_weight_multipliers: dict[str, float] = field(
+        default_factory=lambda: {
+            "NBA": 1.00,
+            "Soccer": 0.98,
+            "Cricket": 1.02,
+            "Trump": 1.07,
+            "Elections": 1.05,
+        }
+    )
+    # These endpoints mirror the commonly documented separation between
+    # Polymarket's market metadata API and CLOB execution API.
+    gamma_base_url: str = "https://gamma-api.polymarket.com"
+    clob_base_url: str = "https://clob.polymarket.com"
