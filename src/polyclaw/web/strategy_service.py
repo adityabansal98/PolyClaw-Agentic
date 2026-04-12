@@ -137,7 +137,7 @@ def _url_from_slug(slug):
     # type: (Optional[str]) -> Optional[str]
     if not slug:
         return None
-    return "https://polymarket.com/event/{}".format(slug)
+    return "https://polymarket.com/markets/{}".format(slug)
 
 
 def _load_from_precomputed():

@@ -100,14 +100,8 @@ class SelectionPipeline:
         if event_slug:
             return f"https://polymarket.com/event/{event_slug}"
         slug = metadata.get("slug")
-        if slug and str(slug).startswith("cric"):
-            sport_code = str(slug).split("-", 1)[0]
-            return f"https://polymarket.com/sports/{sport_code}/{slug}"
         if slug:
-            return f"https://polymarket.com/event/{slug}"
-        market_id = metadata.get("id") or metadata.get("market_id")
-        if market_id:
-            return f"https://polymarket.com/market/{market_id}"
+            return f"https://polymarket.com/markets/{slug}"
         return None
 
     @staticmethod

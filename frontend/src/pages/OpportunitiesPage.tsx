@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import type { ScoredOpportunity, OpportunitySide } from '../lib/types'
 
-const CATEGORIES = ['NBA', 'Soccer', 'Cricket', 'Elections', 'Mentions'] as const
+const CATEGORIES = ['NBA', 'Soccer', 'Elections'] as const
 type SortKey = 'score' | 'edge_pct' | 'liquidity_score'
 
 interface OpportunitiesPageProps {
