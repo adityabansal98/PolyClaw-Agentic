@@ -7,6 +7,8 @@ Framework for selecting top Polymarket bets across:
 - Trump
 - Elections
 
+It also includes ingestion, trading, and a web dashboard served through FastAPI.
+
 The current implementation builds a reusable pipeline to:
 1. Normalize Polymarket public-market JSON payloads.
 2. Engineer market microstructure features.
@@ -42,6 +44,34 @@ python3 run_selector.py --input data/sample_markets.json --output data/selection
 ```
 
 This writes output to `data/selection_output.json` with the selected side, score, confidence, edge, EV, and rationale tags.
+
+## Dashboard
+
+The React dashboard source lives in `frontend/`. The Python web app serves the compiled output from
+`src/polyclaw/web/static/app`.
+
+Build the frontend:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Run the web server:
+
+```bash
+polyclaw web --host 127.0.0.1 --port 8000
+```
+
+Then open `http://127.0.0.1:8000/`.
+
+For frontend-only development:
+
+```bash
+cd frontend
+npm run dev
+```
 
 ## Output Shape
 

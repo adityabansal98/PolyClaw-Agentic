@@ -1,0 +1,57 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    'IBM Plex Sans',
+    'SF Pro Display',
+    'Segoe UI',
+    sans-serif;
+  line-height: 1.45;
+  font-weight: 400;
+  color: #e8ebf2;
+  background: #0b1016;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --text-strong: #f5f7fb;
+  --text-soft: #c9cfda;
+  --text-muted: #8f98a8;
+  --surface: #121821;
+  --surface-border: rgba(255, 255, 255, 0.08);
+  --mono:
+    'IBM Plex Mono',
+    'SF Mono',
+    ui-monospace,
+    monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
