@@ -53,10 +53,12 @@ def _run_pipeline():
     all_picks = []  # type: List[Dict[str, Any]]
     for category, picks in raw.items():
         for pick in picks:
+            market_url = pick.get("market_url") or _url_from_slug(pick.get("event_group"))
             all_picks.append(
                 {
                     **pick,
                     "category": category,
+                    "market_url": market_url,
                     "edge_pct": round(pick.get("selected_edge", 0) * 100, 2),
                     "confidence_pct": round(pick.get("confidence", 0) * 100, 1),
                     "score_pct": round(pick.get("score", 0) * 100, 1),
@@ -131,6 +133,13 @@ def _enrich_with_openai(picks):
     return picks
 
 
+def _url_from_slug(slug):
+    # type: (Optional[str]) -> Optional[str]
+    if not slug:
+        return None
+    return "https://polymarket.com/event/{}".format(slug)
+
+
 def _load_from_precomputed():
     # type: () -> List[Dict[str, Any]]
     """Read picks from the most recent pre-computed selection output file."""
@@ -158,7 +167,7 @@ def _load_from_precomputed():
                 **pick,
                 "category": category,
                 "market_id": pick.get("market_id", pick.get("id", "")),
-                "market_url": pick.get("market_url", None),
+                "market_url": pick.get("market_url") or _url_from_slug(pick.get("event_group")),
                 "side": pick.get("side", "YES"),
                 "score": pick.get("score", 0),
                 "edge_pct": round(pick.get("selected_edge", 0) * 100, 2),
