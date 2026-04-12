@@ -23,7 +23,7 @@ const OPPORTUNITIES_REFRESH_MS = 8000
 const OVERVIEW_REFRESH_MS = 12000
 const POSITIONS_REFRESH_MS = 12000
 const DETAIL_REFRESH_MS = 9000
-const STRATEGY_REFRESH_MS = 60000
+const STRATEGY_REFRESH_MS = 30000
 
 const USERS_KEY = 'polyclaw.users'
 const SESSION_KEY = 'polyclaw.session'
@@ -411,27 +411,52 @@ export function usePrototypeDashboard() {
       return
     }
 
-    pollAll()
-    pollStrategy()
+    let overviewTimer: number | undefined
+    let opportunitiesTimer: number | undefined
+    let positionsTimer: number | undefined
+    let strategyTimer: number | undefined
 
-    const overviewTimer = window.setInterval(() => {
-      pollOverview()
-    }, OVERVIEW_REFRESH_MS)
-    const opportunitiesTimer = window.setInterval(() => {
-      pollOpportunities()
-    }, OPPORTUNITIES_REFRESH_MS)
-    const positionsTimer = window.setInterval(() => {
-      pollPositions()
-    }, POSITIONS_REFRESH_MS)
-    const strategyTimer = window.setInterval(() => {
+    function startTimers() {
+      pollAll()
       pollStrategy()
-    }, STRATEGY_REFRESH_MS)
+      overviewTimer = window.setInterval(() => {
+        pollOverview()
+      }, OVERVIEW_REFRESH_MS)
+      opportunitiesTimer = window.setInterval(() => {
+        pollOpportunities()
+      }, OPPORTUNITIES_REFRESH_MS)
+      positionsTimer = window.setInterval(() => {
+        pollPositions()
+      }, POSITIONS_REFRESH_MS)
+      strategyTimer = window.setInterval(() => {
+        pollStrategy()
+      }, STRATEGY_REFRESH_MS)
+    }
 
-    return () => {
+    function stopTimers() {
       window.clearInterval(overviewTimer)
       window.clearInterval(opportunitiesTimer)
       window.clearInterval(positionsTimer)
       window.clearInterval(strategyTimer)
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        startTimers()
+      } else {
+        stopTimers()
+      }
+    }
+
+    if (document.visibilityState === 'visible') {
+      startTimers()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      stopTimers()
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [sessionUser])
 

@@ -78,7 +78,7 @@ export function OpportunitiesPage({
             <p className="opp-page__subtitle muted">
               {scoredLoading && scoredOpportunities.length === 0
                 ? 'Running scoring pipeline…'
-                : `${filtered.length} scored picks · refreshes every 60s`}
+                : `${filtered.length} scored picks · refreshes every 30s`}
             </p>
           </div>
           <div className="opp-page__controls">
@@ -149,39 +149,24 @@ export function OpportunitiesPage({
                     </strong>
                   </div>
                   <div className="opp-metric">
-                    <span className="opp-metric__label">Score</span>
-                    <div className="opp-metric__score-row">
-                      <strong className="opp-metric__value">{pick.score_pct.toFixed(0)}</strong>
-                      <ScoreBar value={pick.score} />
-                    </div>
+                    <span className="opp-metric__label">Our View</span>
+                    <strong className="opp-metric__value">
+                      {(pick.p_model_yes * 100).toFixed(1)}%
+                    </strong>
                   </div>
                   <div className="opp-metric">
-                    <span className="opp-metric__label">Confidence</span>
-                    <strong className="opp-metric__value">{pick.confidence_pct.toFixed(0)}%</strong>
+                    <span className="opp-metric__label">Market</span>
+                    <strong className="opp-metric__value">
+                      {(pick.p_market_yes * 100).toFixed(1)}%
+                    </strong>
                   </div>
                 </div>
-
-                {pick.rationale_tags.length > 0 ? (
-                  <div className="opp-card__tags">
-                    {pick.rationale_tags.map((tag) => (
-                      <span key={tag} className="opp-tag">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
 
                 {pick.ai_commentary ? (
                   <p className="opp-card__commentary">{pick.ai_commentary}</p>
                 ) : null}
 
                 <div className="opp-card__footer">
-                  <span className="muted" style={{ fontSize: '0.8rem' }}>
-                    Liq {(pick.liquidity_score * 100).toFixed(0)} ·{' '}
-                    {pick.hours_to_resolution != null
-                      ? `${Math.round(pick.hours_to_resolution)}h left`
-                      : 'No expiry'}
-                  </span>
                   <div className="opp-card__actions">
                     <button
                       className="button button--ghost opp-card__skip"
