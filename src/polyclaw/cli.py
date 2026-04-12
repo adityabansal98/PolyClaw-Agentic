@@ -31,6 +31,11 @@ def main():
     sub.add_parser("fetch-all", help="Full ingestion: markets + prices + orderbooks")
     sub.add_parser("daemon", help="Run continuous ingestion loop")
 
+    # Web UI
+    web_parser = sub.add_parser("web", help="Launch the web dashboard")
+    web_parser.add_argument("--host", default="127.0.0.1", help="Host (default: 127.0.0.1)")
+    web_parser.add_argument("--port", type=int, default=8000, help="Port (default: 8000)")
+
     # Trading commands
     trade_parser = sub.add_parser("trade", help="Place a paper/live trade")
     trade_parser.add_argument("--mode", choices=["paper", "live"], default=None, help="Trading mode")
@@ -52,6 +57,13 @@ def main():
 
     args = parser.parse_args()
     setup_logging(args.verbose)
+
+    # Web UI
+    if args.command == "web":
+        import uvicorn
+        print(f"Starting PolyClaw web UI at http://{args.host}:{args.port}")
+        uvicorn.run("polyclaw.web.app:app", host=args.host, port=args.port, log_level="info")
+        return
 
     # Ingestion commands
     if args.command in ("fetch-markets", "fetch-prices", "fetch-orderbooks", "fetch-all", "daemon"):
