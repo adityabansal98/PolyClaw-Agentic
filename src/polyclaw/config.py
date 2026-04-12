@@ -23,8 +23,16 @@ class Settings(BaseSettings):
     # Database
     db_path: str = "polyclaw.db"
 
-    # Authentication (Phase 2 — not needed for read-only)
+    # Trading
+    trading_mode: str = "paper"  # "paper" or "live"
+    paper_db_path: str = "paper_trading.db"
+    paper_starting_balance: float = 10_000.0
+
+    # Authentication (required for live trading only)
     private_key: str | None = None
+    api_key: str | None = None
+    api_secret: str | None = None
+    api_passphrase: str | None = None
 
 
 settings = Settings()
