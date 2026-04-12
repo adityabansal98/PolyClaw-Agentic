@@ -96,7 +96,7 @@ class PaperTrader(TraderInterface):
             self._sb = SupabaseDB(url=settings.supabase_url, key=settings.supabase_key)
             # Tables + initial data already created via migration
         else:
-            self._conn = sqlite3.connect(db_path)
+            self._conn = sqlite3.connect(db_path, check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(PAPER_SCHEMA)
