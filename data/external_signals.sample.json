@@ -1,0 +1,53 @@
+{
+  "signals": [
+    {
+      "category": "NBA",
+      "source": "consensus-odds",
+      "market_ref": "2026-nba-champion",
+      "match_terms": ["cavaliers", "nba finals"],
+      "probability_yes": 0.055,
+      "confidence": 0.82,
+      "weight": 1.2,
+      "timestamp": "2026-04-12T14:30:00Z"
+    },
+    {
+      "category": "Soccer",
+      "source": "consensus-odds",
+      "market_ref": "uefa-europa-league-winner",
+      "match_terms": ["porto", "europa league"],
+      "probability_yes": 0.12,
+      "confidence": 0.78,
+      "weight": 1.1,
+      "timestamp": "2026-04-12T14:20:00Z"
+    },
+    {
+      "category": "Cricket",
+      "source": "consensus-odds",
+      "match_terms": ["mumbai indians", "royal challengers"],
+      "probability_yes": 0.58,
+      "confidence": 0.74,
+      "weight": 1.0,
+      "timestamp": "2026-04-12T14:10:00Z"
+    },
+    {
+      "category": "Trump",
+      "source": "polling-aggregate",
+      "market_ref": "presidential-election-winner-2028",
+      "match_terms": ["donald trump jr", "eric trump", "ivanka trump"],
+      "probability_yes": 0.012,
+      "confidence": 0.70,
+      "weight": 1.0,
+      "timestamp": "2026-04-12T13:50:00Z"
+    },
+    {
+      "category": "Elections",
+      "source": "forecast-blend",
+      "market_ref": "presidential-election-winner-2028",
+      "match_terms": ["nikki haley", "tim walz", "vivek ramaswamy"],
+      "probability_yes": 0.01,
+      "confidence": 0.68,
+      "weight": 1.0,
+      "timestamp": "2026-04-12T13:55:00Z"
+    }
+  ]
+}

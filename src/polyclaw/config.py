@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     trading_mode: str = "paper"  # "paper" or "live"
     paper_db_path: str = "paper_trading.db"
     paper_starting_balance: float = 10_000.0
+    db_backend: str = "sqlite"  # "sqlite" or "supabase"
+
+    # Supabase (required when db_backend = "supabase")
+    supabase_url: str = ""  # e.g. https://xxxxx.supabase.co
+    supabase_key: str = ""  # anon/service_role key
 
     # Authentication (required for live trading only)
     private_key: str | None = None

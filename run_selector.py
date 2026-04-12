@@ -14,13 +14,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--input",
         type=str,
         default="data/sample_markets.json",
-        help="Path to JSON markets payload.",
+        help="Path to JSON markets payload (ignored when --live is set).",
+    )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Fetch live markets from Polymarket public APIs.",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=600,
+        help="Maximum number of live markets to fetch when --live is set.",
     )
     parser.add_argument(
         "--output",
         type=str,
         default="data/selection_output.json",
         help="Path to write selection output JSON.",
+    )
+    parser.add_argument(
+        "--external-signals",
+        type=str,
+        default=None,
+        help="Path to external signals JSON used to estimate fair probabilities.",
+    )
+    parser.add_argument(
+        "--require-external",
+        action="store_true",
+        help="Only allow markets that have matched external signals.",
     )
     parser.add_argument(
         "--pretty",
@@ -33,8 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
 
-    pipeline = SelectionPipeline()
-    results = pipeline.run_from_file(args.input)
+    pipeline = SelectionPipeline(
+        external_signals_path=args.external_signals,
+        require_external_signal=args.require_external,
+    )
+    if args.live:
+        results = pipeline.run_with_public_api(limit=args.limit)
+    else:
+        results = pipeline.run_from_file(args.input)
     pipeline.write_output(args.output, results)
 
     if args.pretty:

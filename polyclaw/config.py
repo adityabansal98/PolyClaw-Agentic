@@ -17,9 +17,24 @@ class CategoryWeights:
 @dataclass(frozen=True)
 class SelectionConstraints:
     min_confidence: float = 0.55
-    min_edge: float = 0.015
+    min_edge: float = 0.0
     min_liquidity_score: float = 0.20
+    min_market_prob_yes_for_yes_bet: float = 0.02
+    min_market_prob_yes: float = 0.03
+    max_market_prob_yes: float = 0.97
     max_spread_bps: float = 450.0
+    relaxed_min_confidence: float = 0.45
+    relaxed_min_edge: float = 0.0
+    relaxed_min_liquidity_score: float = 0.12
+    relaxed_max_spread_bps: float = 1200.0
+    coverage_max_spread_bps: float = 5000.0
+    quick_horizon_hours: float = 72.0
+    medium_horizon_hours: float = 24.0 * 14.0
+    long_horizon_hours: float = 24.0 * 45.0
+    quick_min_edge: float = 0.005
+    medium_min_edge: float = 0.012
+    long_min_edge: float = 0.020
+    very_long_min_edge: float = 0.035
     max_per_event_group: int = 1
     max_pairwise_correlation: float = 0.65
     picks_per_category: int = 5
