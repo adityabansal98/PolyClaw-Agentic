@@ -2,51 +2,74 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-
-from polyclaw.clients.clob import ClobClientWrapper
-from polyclaw.clients.gamma import GammaClient
-from polyclaw.config import settings
-from polyclaw.trading.models import Side, TradeOrder, TradeOrderType
-from polyclaw.trading.paper_trader import PaperTrader
+from flask import Flask, jsonify, request, send_from_directory
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="PolyClaw", version="0.1.0")
+STATIC_DIR = str(Path(__file__).parent / "static")
 
-STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app = Flask(__name__, static_folder=STATIC_DIR)
 
-# Shared instances
-gamma = GammaClient()
-clob = ClobClientWrapper()
-trader = PaperTrader(
-    db_path=settings.paper_db_path,
-    starting_balance=settings.paper_starting_balance,
-    clob=clob,
-)
+# Lazy singletons
+_gamma = None
+_clob = None
+_trader = None
 
 
-@app.get("/")
-async def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+def get_gamma():
+    global _gamma
+    if _gamma is None:
+        from polyclaw.clients.gamma import GammaClient
+        _gamma = GammaClient()
+    return _gamma
 
 
-@app.get("/api/markets")
-async def search_markets(q: str = "", limit: int = Query(default=20, le=100)):
-    """Search active markets via Gamma API."""
-    import httpx
+def get_clob():
+    global _clob
+    if _clob is None:
+        from polyclaw.clients.clob import ClobClientWrapper
+        _clob = ClobClientWrapper()
+    return _clob
 
-    params: dict = {"limit": limit, "active": True}
-    if q:
-        params["tag"] = q
 
-    # Use direct httpx call for the text search since Gamma doesn't have
-    # a proper search endpoint — we filter client-side
-    all_markets = gamma.get_markets(limit=100)
+def get_trader():
+    global _trader
+    if _trader is None:
+        from polyclaw.config import settings
+        from polyclaw.trading.paper_trader import PaperTrader
+        _trader = PaperTrader(
+            db_path=settings.paper_db_path,
+            starting_balance=settings.paper_starting_balance,
+            clob=get_clob(),
+        )
+    return _trader
+
+
+@app.after_request
+def add_cors(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    return response
+
+
+@app.route("/")
+def index():
+    return send_from_directory(STATIC_DIR, "index.html")
+
+
+@app.route("/api/markets")
+def search_markets():
+    q = request.args.get("q", "")
+    limit = int(request.args.get("limit", 20))
+
+    gamma = get_gamma()
+    all_markets = []
+    for offset in range(0, 500, 100):
+        page = gamma.get_markets(limit=100, offset=offset)
+        all_markets.extend(page)
+        if len(page) < 100:
+            break
 
     if q:
         q_lower = q.lower()
@@ -54,10 +77,9 @@ async def search_markets(q: str = "", limit: int = Query(default=20, le=100)):
     else:
         filtered = all_markets
 
-    # Sort by volume descending
     filtered.sort(key=lambda m: m.volume, reverse=True)
 
-    return [
+    return jsonify([
         {
             "id": m.id,
             "question": m.question,
@@ -76,15 +98,14 @@ async def search_markets(q: str = "", limit: int = Query(default=20, le=100)):
             "group_item_title": m.group_item_title,
         }
         for m in filtered[:limit]
-    ]
+    ])
 
 
-@app.get("/api/orderbook/{token_id}")
-async def get_orderbook(token_id: str):
-    """Get live orderbook for a token."""
+@app.route("/api/orderbook/<token_id>")
+def get_orderbook(token_id):
     try:
-        ob = clob.get_orderbook(token_id)
-        return {
+        ob = get_clob().get_orderbook(token_id)
+        return jsonify({
             "token_id": ob.token_id,
             "market_id": ob.market_id,
             "best_bid": ob.best_bid,
@@ -93,50 +114,41 @@ async def get_orderbook(token_id: str):
             "midpoint": ob.midpoint,
             "bids": [{"price": l.price, "size": l.size} for l in ob.bids[:15]],
             "asks": [{"price": l.price, "size": l.size} for l in ob.asks[:15]],
-        }
+        })
     except Exception as e:
-        return {"error": str(e)}
+        return jsonify({"error": str(e)})
 
 
-class TradeRequest(BaseModel):
-    token_id: str
-    market_id: str = ""
-    question: str = ""
-    outcome: str = ""
-    side: str  # BUY or SELL
-    size: float
-    price: float | None = None
+@app.route("/api/trade", methods=["POST"])
+def place_trade():
+    from polyclaw.trading.models import Side, TradeOrder, TradeOrderType
 
-
-@app.post("/api/trade")
-async def place_trade(req: TradeRequest):
-    """Place a paper trade."""
+    req = request.json
     order = TradeOrder(
-        token_id=req.token_id,
-        market_id=req.market_id,
-        market_question=req.question,
-        outcome=req.outcome,
-        side=Side(req.side),
-        order_type=TradeOrderType.LIMIT if req.price else TradeOrderType.MARKET,
-        price=req.price,
-        size=req.size,
+        token_id=req["token_id"],
+        market_id=req.get("market_id", ""),
+        market_question=req.get("question", ""),
+        outcome=req.get("outcome", ""),
+        side=Side(req["side"]),
+        order_type=TradeOrderType.LIMIT if req.get("price") else TradeOrderType.MARKET,
+        price=req.get("price"),
+        size=req["size"],
     )
-    result = trader.place_order(order)
-    return {
+    result = get_trader().place_order(order)
+    return jsonify({
         "order_id": result.order_id,
         "status": result.status.value,
         "filled_price": result.filled_price,
         "filled_size": result.filled_size,
         "total_cost": result.total_cost,
         "message": result.message,
-    }
+    })
 
 
-@app.get("/api/portfolio")
-async def get_portfolio():
-    """Get paper trading portfolio."""
-    p = trader.get_portfolio()
-    return {
+@app.route("/api/portfolio")
+def get_portfolio():
+    p = get_trader().get_portfolio()
+    return jsonify({
         "cash_balance": p.cash_balance,
         "total_position_value": p.total_position_value,
         "total_equity": p.total_equity,
@@ -155,11 +167,11 @@ async def get_portfolio():
             }
             for pos in p.positions
         ],
-    }
+    })
 
 
-@app.post("/api/reset")
-async def reset_portfolio():
-    """Reset paper trading."""
-    trader.reset()
-    return {"message": "Paper trading reset", "balance": settings.paper_starting_balance}
+@app.route("/api/reset", methods=["POST"])
+def reset_portfolio():
+    from polyclaw.config import settings
+    get_trader().reset()
+    return jsonify({"message": "Paper trading reset", "balance": settings.paper_starting_balance})

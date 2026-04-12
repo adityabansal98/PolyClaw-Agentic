@@ -60,9 +60,9 @@ def main():
 
     # Web UI
     if args.command == "web":
-        import uvicorn
+        from polyclaw.web.app import app as flask_app
         print(f"Starting PolyClaw web UI at http://{args.host}:{args.port}")
-        uvicorn.run("polyclaw.web.app:app", host=args.host, port=args.port, log_level="info")
+        flask_app.run(host=args.host, port=args.port, debug=False)
         return
 
     # Ingestion commands
