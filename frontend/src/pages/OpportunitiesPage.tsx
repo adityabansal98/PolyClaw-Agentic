@@ -132,9 +132,9 @@ export function OpportunitiesPage({
                                 href={pick.market_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="opp-card__ext-link"
+                                className="opp-card__polymarket-link"
                               >
-                                {'->'}
+                                Polymarket
                               </a>
                             ) : null}
                           </div>

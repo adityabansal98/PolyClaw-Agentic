@@ -169,7 +169,7 @@ class MarketScorer:
             ipl_like = "ipl" in q or "ipl" in tags
             return (0.015 if ipl_like else 0.0) - (0.020 if toss_like else 0.0)
 
-        if market.category == "Trump":
+        if market.category == "Mentions":
             legal_headline_like = any(k in q for k in ("indict", "verdict", "court"))
             return (0.020 if "poll" in q else 0.0) - (0.020 if legal_headline_like else 0.0)
 

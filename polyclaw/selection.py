@@ -122,14 +122,9 @@ class BetSelector:
 
     @staticmethod
     def _passes_coverage(m: ScoredMarket, c) -> bool:
-        edge_threshold = max(EDGE_EPSILON, c.min_edge, _alpha_edge_floor(m, c))
         return (
             not _is_extreme_probability(m, c)
-            and
-            m.selected_edge > edge_threshold
-            and m.expected_value > 0.0
             and m.features.spread_bps <= c.coverage_max_spread_bps
-            and not (m.selected_side == "YES" and m.p_market_yes < c.min_market_prob_yes_for_yes_bet)
         )
 
     def _violates_diversification(

@@ -47,9 +47,7 @@ function App() {
           ))}
         </nav>
 
-        <div className="sidebar__footer">
-          <StatusPill tone="info">Live Polymarket feed</StatusPill>
-        </div>
+        <div className="sidebar__footer" />
       </aside>
 
       <div className="workspace">

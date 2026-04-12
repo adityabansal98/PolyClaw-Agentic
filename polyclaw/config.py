@@ -57,7 +57,7 @@ class FrameworkConfig:
             "NBA": 1.00,
             "Soccer": 0.98,
             "Cricket": 1.02,
-            "Trump": 1.07,
+            "Mentions": 1.07,
             "Elections": 1.05,
         }
     )

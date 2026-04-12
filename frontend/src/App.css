@@ -902,6 +902,23 @@ textarea {
   color: var(--text-strong);
 }
 
+.opp-card__polymarket-link {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: #818cf8;
+  background: rgba(129, 140, 248, 0.1);
+  border: 1px solid rgba(129, 140, 248, 0.25);
+  border-radius: 6px;
+  padding: 0.22rem 0.55rem;
+  transition: background 140ms, border-color 140ms;
+}
+
+.opp-card__polymarket-link:hover {
+  background: rgba(129, 140, 248, 0.2);
+  border-color: rgba(129, 140, 248, 0.45);
+}
+
 .side-badge {
   font-size: 0.7rem;
   font-weight: 700;
