@@ -14,7 +14,12 @@ const STRATEGY_INFO: Record<string, { label: string; tip: string }> = {
 }
 
 function Tip({ text }: { text: string }) {
-  return <span className="bt-tip" title={text}>?</span>
+  return (
+    <span className="bt-tip">
+      ?
+      <span className="bt-tip__popup">{text}</span>
+    </span>
+  )
 }
 
 function formatNum(n: number): string {
@@ -129,24 +134,24 @@ function KpiStrip({ metrics, startingCash }: { metrics: BacktestMetrics; startin
   const returnColor = metrics.total_return_pct >= 0 ? 'var(--kpi-pos)' : 'var(--kpi-neg)'
   return (
     <div className="bt-kpis">
-      <div className="bt-kpi" title="Percentage gain or loss on your starting cash. Green = profit, red = loss.">
+      <div className="bt-kpi">
         <span className="bt-kpi__label">Total Return <Tip text="How much your portfolio grew or shrank. Calculated as (ending value - starting cash) / starting cash." /></span>
         <span className="bt-kpi__value" style={{ color: returnColor }}>
           {metrics.total_return_pct >= 0 ? '+' : ''}{metrics.total_return_pct.toFixed(1)}%
         </span>
         <span className="bt-kpi__sub">${formatNum(metrics.total_return_usd)}</span>
       </div>
-      <div className="bt-kpi" title="Risk-adjusted return. Higher is better. >1 is good, >2 is great, <0 means you lost money.">
+      <div className="bt-kpi">
         <span className="bt-kpi__label">Sharpe Ratio <Tip text="Measures return per unit of risk. A Sharpe of 1.5 means you earned 1.5% extra return for every 1% of volatility. Higher = better risk-adjusted performance." /></span>
         <span className="bt-kpi__value">{metrics.sharpe_ratio?.toFixed(2) ?? 'N/A'}</span>
       </div>
-      <div className="bt-kpi" title="The worst peak-to-trough decline during the backtest period.">
+      <div className="bt-kpi">
         <span className="bt-kpi__label">Max Drawdown <Tip text="The largest drop from a peak to a trough. If your portfolio hit $12K then dropped to $10K, that's a 16.7% drawdown. Lower is better." /></span>
         <span className="bt-kpi__value" style={{ color: 'var(--kpi-neg)' }}>
           -{metrics.max_drawdown_pct.toFixed(1)}%
         </span>
       </div>
-      <div className="bt-kpi" title="Percentage of completed trades that made money.">
+      <div className="bt-kpi">
         <span className="bt-kpi__label">Win Rate <Tip text="Of all round-trip trades (buy then sell), what percentage were profitable. 50%+ is decent, 60%+ is strong." /></span>
         <span className="bt-kpi__value">{(metrics.win_rate * 100).toFixed(0)}%</span>
         <span className="bt-kpi__sub">{metrics.total_trades} trades</span>
