@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import type { BacktestResult, BacktestMetrics, EquityPoint, BacktestTrade } from '../lib/types'
+import type { BacktestResult, BacktestMetrics, BacktestTrade } from '../lib/types'
+import { EquityCurveChart, DrawdownChart, TradePnlChart } from '../components/InteractiveChart'
+import { KpiStripEnhanced } from '../components/KpiCardEnhanced'
 
 const API = ''
 
@@ -26,10 +28,6 @@ function formatNum(n: number): string {
   if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M'
   if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1) + 'K'
   return n.toFixed(0)
-}
-
-function formatDate(ts: number): string {
-  return new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function formatDateTime(ts: number): string {
@@ -113,9 +111,10 @@ export function BacktestPage() {
       {/* Results */}
       {result && (
         <>
-          <KpiStrip metrics={result.metrics} startingCash={result.starting_cash} />
-          <EquityCurveChart curve={result.equity_curve} />
+          <KpiStripEnhanced metrics={result.metrics} startingCash={result.starting_cash} />
+          <EquityCurveChart curve={result.equity_curve} startingCash={result.starting_cash} trades={result.trades} />
           <DrawdownChart curve={result.equity_curve} />
+          <TradePnlChart trades={result.trades} />
           <TradeLog trades={result.trades} />
           <MetricsGrid metrics={result.metrics} result={result} />
         </>
@@ -123,122 +122,34 @@ export function BacktestPage() {
 
       {!result && !running && (
         <div className="bt-empty">
-          Select a strategy and market query, then click Run Backtest
+          Select a strategy and market query, then click <strong>Run Backtest</strong>
         </div>
       )}
     </div>
   )
 }
 
-function KpiStrip({ metrics, startingCash }: { metrics: BacktestMetrics; startingCash: number }) {
-  const returnColor = metrics.total_return_pct >= 0 ? 'var(--kpi-pos)' : 'var(--kpi-neg)'
-  return (
-    <div className="bt-kpis">
-      <div className="bt-kpi">
-        <span className="bt-kpi__label">Total Return <Tip text="How much your portfolio grew or shrank. Calculated as (ending value - starting cash) / starting cash." /></span>
-        <span className="bt-kpi__value" style={{ color: returnColor }}>
-          {metrics.total_return_pct >= 0 ? '+' : ''}{metrics.total_return_pct.toFixed(1)}%
-        </span>
-        <span className="bt-kpi__sub">${formatNum(metrics.total_return_usd)}</span>
-      </div>
-      <div className="bt-kpi">
-        <span className="bt-kpi__label">Sharpe Ratio <Tip text="Measures return per unit of risk. A Sharpe of 1.5 means you earned 1.5% extra return for every 1% of volatility. Higher = better risk-adjusted performance." /></span>
-        <span className="bt-kpi__value">{metrics.sharpe_ratio?.toFixed(2) ?? 'N/A'}</span>
-      </div>
-      <div className="bt-kpi">
-        <span className="bt-kpi__label">Max Drawdown <Tip text="The largest drop from a peak to a trough. If your portfolio hit $12K then dropped to $10K, that's a 16.7% drawdown. Lower is better." /></span>
-        <span className="bt-kpi__value" style={{ color: 'var(--kpi-neg)' }}>
-          -{metrics.max_drawdown_pct.toFixed(1)}%
-        </span>
-      </div>
-      <div className="bt-kpi">
-        <span className="bt-kpi__label">Win Rate <Tip text="Of all round-trip trades (buy then sell), what percentage were profitable. 50%+ is decent, 60%+ is strong." /></span>
-        <span className="bt-kpi__value">{(metrics.win_rate * 100).toFixed(0)}%</span>
-        <span className="bt-kpi__sub">{metrics.total_trades} trades</span>
-      </div>
-    </div>
-  )
-}
-
-function EquityCurveChart({ curve }: { curve: EquityPoint[] }) {
-  if (curve.length < 2) return null
-  const maxEquity = Math.max(...curve.map(p => p.total_equity))
-  const minEquity = Math.min(...curve.map(p => p.total_equity))
-  const range = maxEquity - minEquity || 1
-  const w = 800
-  const h = 200
-  const points = curve.map((p, i) => {
-    const x = (i / (curve.length - 1)) * w
-    const y = h - ((p.total_equity - minEquity) / range) * h
-    return `${x},${y}`
-  }).join(' ')
-
-  return (
-    <div className="bt-chart">
-      <div className="bt-chart__header">
-        <span className="bt-chart__title">Equity Curve <Tip text="Shows your total portfolio value (cash + positions) over time. An upward slope means the strategy is profitable. A smooth curve with few dips indicates consistent performance." /></span>
-        <span className="bt-chart__range">${formatNum(minEquity)} - ${formatNum(maxEquity)}</span>
-      </div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="bt-chart__svg">
-        <polyline points={points} fill="none" stroke="#3fb950" strokeWidth="2" />
-      </svg>
-      <div className="bt-chart__labels">
-        <span>{formatDate(curve[0].timestamp)}</span>
-        <span>{formatDate(curve[curve.length - 1].timestamp)}</span>
-      </div>
-    </div>
-  )
-}
-
-function DrawdownChart({ curve }: { curve: EquityPoint[] }) {
-  if (curve.length < 2) return null
-  let peak = curve[0].total_equity
-  const drawdowns = curve.map(p => {
-    if (p.total_equity > peak) peak = p.total_equity
-    return peak > 0 ? -((peak - p.total_equity) / peak) * 100 : 0
-  })
-  const maxDD = Math.min(...drawdowns)
-  const range = Math.abs(maxDD) || 1
-  const w = 800
-  const h = 100
-  const points = drawdowns.map((dd, i) => {
-    const x = (i / (drawdowns.length - 1)) * w
-    const y = (Math.abs(dd) / range) * h
-    return `${x},${y}`
-  }).join(' ')
-
-  return (
-    <div className="bt-chart bt-chart--dd">
-      <div className="bt-chart__header">
-        <span className="bt-chart__title">Drawdown <Tip text="Shows how far below the all-time high your portfolio dropped at each point. The deeper the red, the bigger the loss from peak. Strategies with shallow, short drawdowns are more robust." /></span>
-        <span className="bt-chart__range">Max: {maxDD.toFixed(1)}%</span>
-      </div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="bt-chart__svg">
-        <polyline points={`0,0 ${points} ${w},0`} fill="rgba(248,81,73,0.15)" stroke="#f85149" strokeWidth="1.5" />
-      </svg>
-    </div>
-  )
-}
+/* ── Trade Log ── */
 
 function TradeLog({ trades }: { trades: BacktestTrade[] }) {
   if (!trades.length) return null
   return (
     <div className="bt-trades">
       <div className="bt-chart__header">
-        <span className="bt-chart__title">Trade Log <Tip text="Every buy and sell the strategy made. BUY = opened a position, SELL = closed it. The 'Reason' column shows why the strategy triggered." /></span>
+        <span className="bt-chart__title">Trade Log <Tip text="Every buy and sell the strategy made. BUY = opened a position, SELL = closed it." /></span>
         <span className="bt-chart__range">{trades.length} trades</span>
       </div>
       <div className="bt-trades__scroll">
         <table className="bt-trades__table">
           <thead>
             <tr>
-              <th title="When the trade was executed">Time</th>
-              <th title="The Polymarket bet this trade was on">Market</th>
-              <th title="BUY = purchased shares, SELL = sold shares">Side</th>
-              <th title="Price per share at execution (0 to 1, where 1 = $1)">Price</th>
-              <th title="Number of shares bought or sold">Shares</th>
-              <th title="Total USDC spent (buy) or received (sell)">Cost</th>
-              <th title="Why the strategy decided to trade at this moment">Reason</th>
+              <th>Time</th>
+              <th>Market</th>
+              <th>Side</th>
+              <th>Price</th>
+              <th>Shares</th>
+              <th>Cost</th>
+              <th>Reason</th>
             </tr>
           </thead>
           <tbody>
@@ -261,16 +172,18 @@ function TradeLog({ trades }: { trades: BacktestTrade[] }) {
   )
 }
 
+/* ── Metrics Grid ── */
+
 const METRIC_TIPS: Record<string, string> = {
   'Strategy': 'The trading algorithm that was tested',
   'Markets': 'Number of Polymarket bets included in this backtest',
   'Starting Cash': 'Initial USDC balance before any trades',
   'Ending Equity': 'Final portfolio value (cash + open positions)',
   'Total Return': 'Percentage gain or loss over the entire backtest period',
-  'Sharpe Ratio': 'Return divided by volatility. >1 is good, >2 is excellent. Measures risk-adjusted performance',
-  'Max Drawdown': 'Largest peak-to-trough decline. Shows worst-case scenario during the test',
+  'Sharpe Ratio': 'Return divided by volatility. >1 is good, >2 is excellent',
+  'Max Drawdown': 'Largest peak-to-trough decline. Shows worst-case scenario',
   'Win Rate': 'Percentage of round-trip trades that made money',
-  'Profit Factor': 'Total profits divided by total losses. >1 means profitable overall. >2 is strong',
+  'Profit Factor': 'Total profits divided by total losses. >1 means profitable. >2 is strong',
   'Avg Trade PnL': 'Average profit or loss per completed trade',
   'Best Trade': 'Highest single-trade profit',
   'Worst Trade': 'Largest single-trade loss',
@@ -307,11 +220,11 @@ function MetricsGrid({ metrics, result }: { metrics: BacktestMetrics; result: Ba
   return (
     <div className="bt-metrics">
       <div className="bt-chart__header">
-        <span className="bt-chart__title">Performance Summary <Tip text="Detailed breakdown of all performance metrics. Hover over any metric name to see what it means." /></span>
+        <span className="bt-chart__title">Performance Summary <Tip text="Detailed breakdown of all performance metrics." /></span>
       </div>
       <div className="bt-metrics__grid">
         {rows.map(([label, value]) => (
-          <div key={label} title={METRIC_TIPS[label] || ''}>
+          <div key={label}>
             <span>{label} {METRIC_TIPS[label] ? <Tip text={METRIC_TIPS[label]} /> : null}</span>
             <strong style={
               label === 'Best Trade' ? { color: '#3fb950' } :
