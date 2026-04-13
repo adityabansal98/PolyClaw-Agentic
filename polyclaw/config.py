@@ -38,6 +38,14 @@ class SelectionConstraints:
     max_per_event_group: int = 1
     max_pairwise_correlation: float = 0.65
     picks_per_category: int = 5
+    # Kelly position sizing
+    kelly_aggression: float = 0.25       # quarter-Kelly (conservative)
+    max_single_bet_pct: float = 0.05     # 5% max of bankroll per bet
+    max_correlated_exposure_pct: float = 0.20  # 20% max across correlated bets
+    max_drawdown_stop_pct: float = 0.50  # stop trading at 50% drawdown
+    default_bankroll: float = 10_000.0   # default bankroll for sizing
+    # Favorite-longshot bias
+    enable_bias_calibration: bool = True # adjust market prices for known bias
 
 
 @dataclass(frozen=True)

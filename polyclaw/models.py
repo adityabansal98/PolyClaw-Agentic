@@ -66,6 +66,12 @@ class ScoredMarket:
     correlation_key: set[str]
     score: float
     rationale_tags: list[str]
+    # Kelly position sizing (Phase 1)
+    kelly_fraction: float = 0.0         # raw Kelly fraction (before aggression scaling)
+    recommended_stake_pct: float = 0.0  # after aggression + caps
+    recommended_stake_usd: float = 0.0  # dollar amount (requires bankroll context)
+    strategy_type: str = "directional"  # "directional", "premium_sell", "arbitrage"
+    p_calibrated: float | None = None   # bias-adjusted market probability
 
     def as_output_dict(self) -> dict[str, Any]:
         payload = asdict(self)

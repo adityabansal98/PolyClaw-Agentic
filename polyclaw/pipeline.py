@@ -85,6 +85,11 @@ class SelectionPipeline:
                     "event_group": p.market.event_group,
                     "condition_id": p.market.metadata.get("conditionId"),
                     "rationale_tags": p.rationale_tags,
+                    "kelly_fraction": round(p.kelly_fraction, 4),
+                    "recommended_stake_pct": round(p.recommended_stake_pct, 4),
+                    "recommended_stake_usd": round(p.recommended_stake_usd, 2),
+                    "strategy_type": p.strategy_type,
+                    "p_calibrated": round(p.p_calibrated, 4) if p.p_calibrated is not None else None,
                 }
                 for p in picks
             ]
