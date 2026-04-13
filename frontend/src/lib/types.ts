@@ -1,4 +1,4 @@
-export type NavSection = 'opportunities' | 'positions'
+export type NavSection = 'opportunities' | 'positions' | 'backtest'
 export type ServiceStatus = 'healthy' | 'degraded' | 'down'
 export type Environment = 'live' | 'paper'
 export type OpportunityStage = 'new' | 'paper' | 'approved' | 'rejected' | 'executed'
@@ -288,4 +288,67 @@ export interface TradePayload {
   size: number
   price?: number
   opportunityId?: string
+}
+
+// ── Backtest types ──
+
+export interface BacktestMetrics {
+  total_return_pct: number
+  total_return_usd: number
+  sharpe_ratio: number | null
+  max_drawdown_pct: number
+  max_drawdown_usd: number
+  win_rate: number
+  profit_factor: number | null
+  avg_trade_pnl: number
+  total_trades: number
+  winning_trades: number
+  losing_trades: number
+  avg_win: number
+  avg_loss: number
+  best_trade_pnl: number
+  worst_trade_pnl: number
+  total_fees_paid: number
+}
+
+export interface BacktestTrade {
+  timestamp: number
+  token_id: string
+  market_id: string
+  market_question: string
+  outcome: string
+  side: string
+  price: number
+  shares: number
+  cost: number
+  fee: number
+  reason: string
+}
+
+export interface EquityPoint {
+  timestamp: number
+  cash: number
+  position_value: number
+  total_equity: number
+}
+
+export interface BacktestResult {
+  backtest_id: string
+  strategy_name: string
+  starting_cash: number
+  ending_cash: number
+  ending_equity: number
+  fee_bps: number
+  fidelity: number
+  markets: string[]
+  strategy_params: Record<string, number | string>
+  metrics: BacktestMetrics
+  trades: BacktestTrade[]
+  equity_curve: EquityPoint[]
+}
+
+export interface StrategyInfo {
+  name: string
+  description: string
+  params: Record<string, number | string>
 }

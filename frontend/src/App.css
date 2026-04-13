@@ -1356,3 +1356,54 @@ textarea {
     align-items: flex-start;
   }
 }
+
+/* ── Backtest page ── */
+:root {
+  --kpi-pos: #3fb950;
+  --kpi-neg: #f85149;
+}
+
+.bt-page { padding: 1.5rem; max-width: 900px; margin: 0 auto; }
+
+.bt-config { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1.2rem; }
+.bt-config__row { display: flex; gap: 0.8rem; align-items: flex-end; flex-wrap: wrap; }
+.bt-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.bt-field--wide { flex: 1; min-width: 200px; }
+.bt-field label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+.bt-field input, .bt-field select { padding: 0.5rem 0.7rem; background: rgba(255,255,255,0.04); border: 1px solid var(--surface-border); border-radius: 8px; color: var(--text-strong); font-size: 0.85rem; outline: none; }
+.bt-field input:focus, .bt-field select:focus { border-color: rgba(245,177,63,0.5); }
+.bt-run { padding: 0.5rem 1.4rem; background: rgba(245,177,63,0.15); border: 1px solid rgba(245,177,63,0.35); color: #f5b13f; border-radius: 8px; font-weight: 600; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+.bt-run:hover { background: rgba(245,177,63,0.25); }
+.bt-run:disabled { opacity: 0.5; cursor: not-allowed; }
+.bt-error { color: var(--kpi-neg); font-size: 0.82rem; margin-top: 0.5rem; }
+.bt-empty { text-align: center; color: var(--text-muted); padding: 4rem 1rem; font-size: 0.9rem; }
+
+.bt-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin-bottom: 1.2rem; }
+.bt-kpi { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 1rem; text-align: center; }
+.bt-kpi__label { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.3rem; }
+.bt-kpi__value { display: block; font-size: 1.5rem; font-weight: 700; color: var(--text-strong); letter-spacing: -0.02em; }
+.bt-kpi__sub { display: block; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
+
+.bt-chart { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+.bt-chart__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
+.bt-chart__title { font-size: 0.82rem; font-weight: 600; color: var(--text-strong); }
+.bt-chart__range { font-size: 0.75rem; color: var(--text-muted); font-family: var(--mono); }
+.bt-chart__svg { width: 100%; height: auto; }
+.bt-chart__labels { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-muted); margin-top: 0.3rem; }
+
+.bt-trades { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+.bt-trades__scroll { max-height: 320px; overflow-y: auto; }
+.bt-trades__table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.bt-trades__table th { text-align: left; padding: 0.4rem 0.5rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.06em; border-bottom: 1px solid var(--surface-border); }
+.bt-trades__table td { padding: 0.35rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.04); color: var(--text-soft); }
+.bt-trades__more { text-align: center; padding: 0.5rem; color: var(--text-muted); font-size: 0.75rem; }
+.bt-side { padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; }
+.bt-side--buy { background: rgba(63,185,80,0.15); color: #3fb950; }
+.bt-side--sell { background: rgba(248,81,73,0.15); color: #f85149; }
+.bt-reason { color: var(--text-muted); font-size: 0.72rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.bt-metrics { background: var(--surface); border: 1px solid var(--surface-border); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+.bt-metrics__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1.5rem; }
+.bt-metrics__grid > div { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.bt-metrics__grid span { color: var(--text-muted); font-size: 0.8rem; }
+.bt-metrics__grid strong { color: var(--text-strong); font-size: 0.8rem; font-family: var(--mono); }

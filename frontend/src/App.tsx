@@ -7,6 +7,7 @@ import type { NavSection } from './lib/types'
 import { usePrototypeDashboard } from './hooks/usePrototypeDashboard'
 import { OpportunitiesPage } from './pages/OpportunitiesPage'
 import { PositionsPage } from './pages/PositionsPage'
+import { BacktestPage } from './pages/BacktestPage'
 
 function App() {
   const [activeSection, setActiveSection] = useState<NavSection>('opportunities')
@@ -23,36 +24,29 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar sidebar--slim">
-        <div className="brand brand--slim">
-          <p className="brand__name">PolyClaw</p>
-          <p className="brand__sub muted">Trading Desk</p>
-        </div>
-
-        <nav className="nav-stack" aria-label="Primary">
-          {([
-            { id: 'opportunities' as NavSection, label: 'Opportunities', badge: dashboard.scoredOpportunities.length || null },
-            { id: 'positions' as NavSection, label: 'Positions', badge: dashboard.positions.length || null },
-          ]).map((item) => (
-            <button
-              key={item.id}
-              className={`nav-button ${activeSection === item.id ? 'is-active' : ''}`}
-              type="button"
-              onClick={() => setActiveSection(item.id)}
-            >
-              <span>{item.label}</span>
-              {item.badge ? <span className="nav-button__badge">{item.badge}</span> : null}
-            </button>
-          ))}
-        </nav>
-
-        <div className="sidebar__footer" />
-      </aside>
-
-      <div className="workspace">
+    <div className="app-shell app-shell--no-sidebar">
+      <div className="workspace workspace--full">
         <header className="topbar topbar--slim">
           <span className="topbar__app-name">PolyClaw</span>
+
+          <div className="tab-toggle">
+            {([
+              { id: 'opportunities' as NavSection, label: 'Opportunities', badge: dashboard.scoredOpportunities.length || null },
+              { id: 'positions' as NavSection, label: 'Positions', badge: dashboard.positions.length || null },
+              { id: 'backtest' as NavSection, label: 'Backtest', badge: null },
+            ]).map((item) => (
+              <button
+                key={item.id}
+                className={`tab-toggle__item ${activeSection === item.id ? 'tab-toggle__item--active' : ''}`}
+                type="button"
+                onClick={() => setActiveSection(item.id)}
+              >
+                {item.label}
+                {item.badge ? <span className="tab-toggle__badge">{item.badge}</span> : null}
+              </button>
+            ))}
+          </div>
+
           <div className="topbar__actions">
             <StatusPill tone={dashboard.killSwitchEnabled ? 'critical' : 'positive'}>
               {dashboard.killSwitchEnabled ? 'Kill switch ON' : 'Paper ready'}
@@ -74,6 +68,8 @@ function App() {
               paperActionBlockedReason={dashboard.paperActionBlockedReason}
               onPlaceBet={dashboard.placeScoredBet}
             />
+          ) : activeSection === 'backtest' ? (
+            <BacktestPage />
           ) : (
             <PositionsPage
               positions={dashboard.positions}

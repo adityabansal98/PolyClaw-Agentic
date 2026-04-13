@@ -337,6 +337,83 @@ def strategy_bet(market_id: str):
     )
 
 
+@app.route("/api/backtest/strategies")
+def list_backtest_strategies():
+    """List available backtest strategies with their parameters."""
+    from polyclaw.backtest.strategies import STRATEGY_REGISTRY
+
+    strategies = []
+    for name, cls in sorted(STRATEGY_REGISTRY.items()):
+        instance = cls()
+        params = {k: v for k, v in instance.__dict__.items() if not k.startswith('_')}
+        strategies.append({
+            "name": name,
+            "description": cls.__doc__.split('\n')[0] if cls.__doc__ else "",
+            "params": params,
+        })
+    return jsonify(strategies)
+
+
+@app.route("/api/backtest", methods=["POST"])
+def run_backtest():
+    """Run a backtest with historical data."""
+    from polyclaw.backtest.data_loader import DataLoader
+    from polyclaw.backtest.engine import BacktestEngine
+    from polyclaw.backtest.strategies import get_strategy
+
+    req = request.json or {}
+    strategy_name = req.get("strategy")
+    markets_query = req.get("markets")
+
+    if not strategy_name or not markets_query:
+        return jsonify({"error": "strategy and markets are required"}), 400
+
+    try:
+        strategy = get_strategy(strategy_name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    strategy.configure(req.get("params", {}))
+
+    loader = DataLoader()
+    market_data = loader.load_markets_by_query(
+        markets_query,
+        fidelity=req.get("fidelity", 60),
+        limit=req.get("max_markets", 5),
+    )
+
+    if not market_data:
+        return jsonify({"error": f"No markets found for: {markets_query!r}"}), 404
+
+    engine = BacktestEngine(
+        starting_cash=req.get("cash", 10_000.0),
+        fee_bps=req.get("fee_bps", 0),
+        slippage_pct=req.get("slippage_pct", 0.005),
+    )
+    result = engine.run(strategy, market_data)
+
+    # Cap equity curve to 500 points for frontend performance
+    curve = result.equity_curve
+    if len(curve) > 500:
+        step = len(curve) // 500
+        curve = curve[::step] + [curve[-1]]
+
+    return jsonify({
+        "backtest_id": result.backtest_id,
+        "strategy_name": result.strategy_name,
+        "starting_cash": result.starting_cash,
+        "ending_cash": result.ending_cash,
+        "ending_equity": result.ending_equity,
+        "fee_bps": result.fee_bps,
+        "fidelity": result.fidelity,
+        "markets": result.markets,
+        "strategy_params": result.strategy_params,
+        "metrics": result.metrics.model_dump(),
+        "trades": [t.model_dump() for t in result.trades],
+        "equity_curve": [e.model_dump() for e in curve],
+    })
+
+
 @app.route("/<path:full_path>")
 def frontend_routes(full_path: str):
     """Serve the compiled React frontend for non-API routes."""

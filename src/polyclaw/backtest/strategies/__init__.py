@@ -2,11 +2,19 @@ from polyclaw.backtest.strategy import Strategy
 from polyclaw.backtest.strategies.momentum import MomentumStrategy
 from polyclaw.backtest.strategies.mean_reversion import MeanReversionStrategy
 from polyclaw.backtest.strategies.threshold import ThresholdStrategy
+from polyclaw.backtest.strategies.kelly_sized import KellySizedStrategy
+from polyclaw.backtest.strategies.fade_longshot import FadeLongshotStrategy
+from polyclaw.backtest.strategies.pendulum import PendulumStrategy
+from polyclaw.backtest.strategies.nothing_happens import NothingHappensStrategy
 
 STRATEGY_REGISTRY: dict[str, type[Strategy]] = {
     "momentum": MomentumStrategy,
     "mean_reversion": MeanReversionStrategy,
     "threshold": ThresholdStrategy,
+    "kelly_sized": KellySizedStrategy,
+    "fade_longshot": FadeLongshotStrategy,
+    "pendulum": PendulumStrategy,
+    "nothing_happens": NothingHappensStrategy,
 }
 
 

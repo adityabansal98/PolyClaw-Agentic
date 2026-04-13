@@ -20,6 +20,12 @@ class TickContext:
     avg_entry_price: float
     tick_index: int
     total_ticks: int
+    # Enhanced fields for research-backed strategies
+    bankroll: float = 0.0          # total equity (cash + all position values)
+    volatility: float = 0.0       # rolling std of last 20 prices
+    price_change_pct: float = 0.0 # % change from previous tick
+    high_watermark: float = 0.0   # highest price seen so far for this market
+    low_watermark: float = 1.0    # lowest price seen so far for this market
 
 
 @dataclass
