@@ -1,8 +1,15 @@
 from pydantic_settings import BaseSettings
 
 
+class ProductionConfigError(RuntimeError):
+    """Raised when production mode is requested without a valid prod backend."""
+
+
 class Settings(BaseSettings):
     model_config = {"env_prefix": "POLYCLAW_"}
+
+    # Deployment environment: "development" | "staging" | "production"
+    environment: str = "development"
 
     # API base URLs
     gamma_base_url: str = "https://gamma-api.polymarket.com"
@@ -38,6 +45,31 @@ class Settings(BaseSettings):
     api_key: str | None = None
     api_secret: str | None = None
     api_passphrase: str | None = None
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
+
+    def enforce_production_guard(self) -> None:
+        """Refuse to boot in production without a real backend.
+
+        Called at every durable-state entry point (PaperTrader, AgentArenaSimulation,
+        ingestion workers). Vercel + SQLite is ephemeral per cold start — production
+        with `db_backend=sqlite` silently loses data. Fail loudly instead.
+        """
+        if not self.is_production:
+            return
+        if self.db_backend != "supabase":
+            raise ProductionConfigError(
+                "POLYCLAW_ENV=production requires POLYCLAW_DB_BACKEND=supabase. "
+                "SQLite on serverless loses data on every cold start. "
+                "Set db_backend=supabase and provide supabase_url + supabase_key."
+            )
+        if not self.supabase_url or not self.supabase_key:
+            raise ProductionConfigError(
+                "POLYCLAW_ENV=production requires POLYCLAW_SUPABASE_URL and "
+                "POLYCLAW_SUPABASE_KEY to be set."
+            )
 
 
 settings = Settings()

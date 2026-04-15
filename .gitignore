@@ -16,8 +16,11 @@ env/
 # Environment variables
 .env
 
-# SQLite databases
+# SQLite databases (including WAL + shared-memory sidecar files)
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 *.sqlite3
 
 # IDE
@@ -37,6 +40,5 @@ htmlcov/
 .vercel
 .env*.local
 
-.env
-*.db
 data/agent_arena_state.json
+data/*.db*

@@ -87,6 +87,7 @@ class PaperTrader(TraderInterface):
         backend: str | None = None,
     ):
         from polyclaw.config import settings
+        settings.enforce_production_guard()
         self._backend = backend or settings.db_backend
         self._sb = None  # Supabase client (lazy)
         self._conn = None  # SQLite connection (lazy)

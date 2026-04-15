@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff (lint)
+        run: ruff check src tests
+
+      - name: Ruff (format check)
+        run: ruff format --check src tests
+
+      - name: Mypy (type check)
+        # Type-checking only the new/clean packages in Phase 0.
+        # src/polyclaw/research/ is excluded via pyproject.toml.
+        run: mypy src/polyclaw/trading src/polyclaw/clients src/polyclaw/storage src/polyclaw/config.py
+
+      - name: Pytest
+        run: pytest -v

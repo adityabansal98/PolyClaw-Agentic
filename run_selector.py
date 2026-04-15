@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from polyclaw.pipeline import SelectionPipeline
+from polyclaw.research.pipeline import SelectionPipeline
 
 
 def build_parser() -> argparse.ArgumentParser:

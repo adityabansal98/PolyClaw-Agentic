@@ -34,6 +34,14 @@ class AgentArenaSimulation:
         supabase_url: str | None = None,
         supabase_key: str | None = None,
     ):
+        from polyclaw.config import ProductionConfigError, settings
+
+        if settings.is_production and not (supabase_url and supabase_key):
+            raise ProductionConfigError(
+                "POLYCLAW_ENV=production requires supabase_url + supabase_key "
+                "for AgentArenaSimulation. SQLite on serverless loses data on cold start."
+            )
+
         self.db_path = Path(db_path)
         self.state_path = Path(state_path)
         self.starting_balance = float(starting_balance)

@@ -5,9 +5,8 @@ import asyncio
 import logging
 from pathlib import Path
 
-from polyclaw.arena_engine import run_single_tick
 from polyclaw.agents import load_agents_from_config
-from polyclaw.pipeline import SelectionPipeline
+from polyclaw.arena_engine import run_single_tick
 from polyclaw.simulation import AgentArenaSimulation
 
 
@@ -20,8 +19,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tick-seconds", type=int, default=300, help="Loop interval in seconds.")
     parser.add_argument("--settle-after-seconds", type=int, default=3600, help="Minimum open duration before settlement.")
     parser.add_argument("--starting-balance", type=float, default=1000.0)
-    parser.add_argument("--external-signals", type=str, default=None)
-    parser.add_argument("--require-external", action="store_true")
     parser.add_argument(
         "--category",
         type=str,
@@ -32,10 +29,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def run_loop(args) -> None:
-    pipeline = SelectionPipeline(
-        external_signals_path=args.external_signals,
-        require_external_signal=args.require_external,
-    )
     agents = load_agents_from_config(args.agent_config)
     arena = AgentArenaSimulation(
         db_path=args.db_path,
@@ -50,7 +43,6 @@ async def run_loop(args) -> None:
     while True:
         try:
             state = run_single_tick(
-                pipeline=pipeline,
                 arena=arena,
                 agents=agents,
                 category=target_category,

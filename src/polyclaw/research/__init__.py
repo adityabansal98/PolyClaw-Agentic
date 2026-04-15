@@ -1,4 +1,4 @@
-"""PolyClaw bet selection framework."""
+"""Research pipeline: scoring, selection, external signals, arbitrage."""
 
 from .pipeline import SelectionPipeline
 
