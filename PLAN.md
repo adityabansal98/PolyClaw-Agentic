@@ -343,9 +343,16 @@ Blast radius: new `backtest_runs` table, worker host decision, ingestion-cadence
 Chosen stack (decided in this phase, not handwaved):
 
 - **Queue:** Postgres-backed via `SELECT ... FOR UPDATE SKIP LOCKED` on `backtest_runs(status='queued')`. No Redis, no RQ, no Celery. Stays in Supabase.
-- **Worker host:** Fly.io machine or Railway service running a Python worker that polls the queue every 2s. Dockerized. Single always-on instance for v1 (cheap). Same worker process also drives the `portfolio_snapshots` 60s sampler.
+- **Worker host:** Railway service (chosen 2026-04-15) running a Python worker that polls the queue every 2s. Dockerized. Single always-on instance for v1 (cheap). Same worker process also drives the `portfolio_snapshots` 60s sampler.
 - **Vercel keeps:** the Flask API surface. The cron that currently hits `/api/arena/tick` is retired (arena is dead); cron jobs migrate to the worker's internal loop.
 - **Local dev:** `docker-compose up` runs the worker alongside everything else.
+
+1. Migration: `backtest_runs(id, agent_id, strategy, params_json, markets_json, fidelity, cash, status, started_at, finished_at, result_json, error_json)`.
+2. Worker implementation: `src/polyclaw/workers/backtest_worker.py` — polls queue, runs `BacktestEngine`, writes result. Timeout + retry + dead-letter on strategy exceptions.
+3. `POST /api/v1/backtest` (Phase 3 route, scaffolded here): enqueues a row, returns `{backtest_id, status: "queued"}`.
+4. `GET /api/v1/backtest/{id}`: returns status + result.
+5. Per-agent backtest quota: `max_concurrent=2`, `max_per_hour=60`, `max_markets_per_run=20`, enforced in the enqueue path.
+6. Reference example: `examples/momentum_research_agent.py` — runs backtest on NBA top-10, picks the winner, trades it.
 
 1. Migration: `backtest_runs(id, agent_id, strategy, params_json, markets_json, fidelity, cash, status, started_at, finished_at, result_json, error_json)`.
 2. Worker implementation: `src/polyclaw/workers/backtest_worker.py` — polls queue, runs `BacktestEngine`, writes result. Timeout + retry + dead-letter on strategy exceptions.
@@ -519,7 +526,7 @@ This plan succeeds if all of these are true:
 | Multi-tenant migration corrupts existing dashboard portfolio | M | H | Default existing rows to `agent_id="__dashboard__"`, mandatory backfill parity test before merge |
 | Byte-identical replay overclaim fails on float determinism | H | H | Commit to `Decimal` at fill boundary; golden-file test gates every Phase 1 merge |
 | Alembic schema drift between SQLite (dev) and Postgres (prod) | H | H | Alembic branches on `bind.dialect.name`; CI runs full test suite against both; SQLite gets unpartitioned + JSON-string fallbacks |
-| Vercel cannot host async worker, deployment assumption breaks | ✅ Mitigated | H | Phase 2c explicitly adopts Fly.io/Railway for worker; Postgres `SKIP LOCKED` queue in Supabase |
+| Vercel cannot host async worker, deployment assumption breaks | ✅ Mitigated | H | Phase 2c adopts Railway for the worker (chosen 2026-04-15); Postgres `SKIP LOCKED` queue in Supabase |
 | RiskGate in middleware bypassed by in-process agents | ✅ Mitigated | H | `RiskGate` lives in `TradingService` (Phase 2b) which both HTTP and in-process paths go through |
 | `arena_bets → portfolio_snapshots` synthesis produces misleading history | ✅ Mitigated | M | Don't synthesize; export to `docs/legacy-arena-history.json`, tag pre-2026-05 leaderboard as incomparable |
 | Backtest-as-a-service becomes a DDoS vector | M | M | Per-agent quota: 2 concurrent, 60/hr, 20 markets/run, timeouts, dead-letter queue |
