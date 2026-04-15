@@ -656,9 +656,11 @@ class DashboardService:
         if self._cache_fresh(self.positions_cache, POSITIONS_CACHE_TTL):
             return self.positions_cache.value
 
+        from polyclaw.storage.schema import DASHBOARD_AGENT_ID
+
         started = time.perf_counter()
-        positions = self.trader.get_positions()
-        trade_history = self.trader.get_trade_history()
+        positions = self.trader.get_positions(DASHBOARD_AGENT_ID)
+        trade_history = self.trader.get_trade_history(DASHBOARD_AGENT_ID)
         opened_lookup: dict[str, int] = {}
         updated_lookup: dict[str, int] = {}
         for trade in trade_history:
@@ -739,8 +741,10 @@ class DashboardService:
         if self._cache_fresh(self.portfolio_cache, PORTFOLIO_CACHE_TTL):
             return self.portfolio_cache.value
 
+        from polyclaw.storage.schema import DASHBOARD_AGENT_ID
+
         started = time.perf_counter()
-        portfolio = self.trader.get_portfolio()
+        portfolio = self.trader.get_portfolio(DASHBOARD_AGENT_ID)
         summary = {
             "environment": "paper",
             "available": True,

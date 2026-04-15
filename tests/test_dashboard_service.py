@@ -104,13 +104,13 @@ class FakeTrader:
             total_unrealized_pnl=5.0,
         )
 
-    def get_positions(self):
+    def get_positions(self, agent_id=None):
         return self.positions
 
-    def get_portfolio(self):
+    def get_portfolio(self, agent_id=None):
         return self.portfolio
 
-    def get_trade_history(self):
+    def get_trade_history(self, agent_id=None):
         return [
             {
                 "token_id": "nba-yes-token",

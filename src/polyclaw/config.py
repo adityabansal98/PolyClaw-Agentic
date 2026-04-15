@@ -53,9 +53,9 @@ class Settings(BaseSettings):
     def enforce_production_guard(self) -> None:
         """Refuse to boot in production without a real backend.
 
-        Called at every durable-state entry point (PaperTrader, AgentArenaSimulation,
-        ingestion workers). Vercel + SQLite is ephemeral per cold start — production
-        with `db_backend=sqlite` silently loses data. Fail loudly instead.
+        Called at every durable-state entry point (PaperTrader, ingestion workers).
+        Vercel + SQLite is ephemeral per cold start — production with
+        `db_backend=sqlite` silently loses data. Fail loudly instead.
         """
         if not self.is_production:
             return

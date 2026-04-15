@@ -838,26 +838,28 @@ class PaperTrader(TraderInterface):
         pass
 
 
-# ── Legacy constructor for the existing dashboard path ────────────────────
+# ── Dashboard entry point (Phase 2b: returns a TradingService) ────────────
 
 
-def make_dashboard_trader(
+def make_dashboard_service(
     db_path: str = "paper_trading.db",
     starting_balance: float = 10_000.0,
     clob=None,
-) -> PaperTrader:
-    """Backwards-compatible factory for the dashboard's single-tenant entry point.
+):
+    """Build a `TradingService` wired to the dashboard's `__dashboard__` agent.
 
-    Wires the dashboard up as `agent_id='__dashboard__'` so all existing call sites
-    continue to work unchanged post-Phase-1.
+    Phase 2b makes `TradingService` the single chokepoint for all order writes, so
+    the dashboard no longer holds a raw PaperTrader. Instead it holds a
+    TradingService and calls methods like `svc.get_portfolio(DASHBOARD_AGENT_ID)`.
+    The agent row is seeded up front via `AgentRegistry.create_agent` so the paper_config
+    balance is authoritative.
     """
+    from polyclaw.agents.registry import AgentRegistry, AgentTier
     from polyclaw.config import settings
+    from polyclaw.trading.service import TradingService
 
     settings.enforce_production_guard()
     if settings.db_backend == "supabase":
-        # Build a SQLAlchemy URL from the supabase project URL + password. Users who
-        # need this must set POLYCLAW_DATABASE_URL explicitly; Phase 1 doesn't add
-        # supabase URL parsing.
         url = getattr(settings, "database_url", "") or ""
         if not url:
             raise RuntimeError(
@@ -870,6 +872,45 @@ def make_dashboard_trader(
 
     engine = make_engine(url)
     market_data = LiveMarketDataProvider(clob=clob) if clob is not None else LiveMarketDataProvider()
+    registry = AgentRegistry(engine)
+    registry.create_agent(
+        DASHBOARD_AGENT_ID,
+        name="Dashboard",
+        starting_balance=starting_balance,
+        tier=AgentTier.HOSTED_INPROCESS,
+    )
+    return TradingService(engine=engine, market_data=market_data)
+
+
+def make_dashboard_trader(
+    db_path: str = "paper_trading.db",
+    starting_balance: float = 10_000.0,
+    clob=None,
+) -> PaperTrader:
+    """Back-compat for tests + CLI paper-reset. Returns a bare PaperTrader bound to
+    the dashboard agent. Production call sites should use `make_dashboard_service`."""
+    from polyclaw.agents.registry import AgentRegistry, AgentTier
+    from polyclaw.config import settings
+
+    settings.enforce_production_guard()
+    if settings.db_backend == "supabase":
+        url = getattr(settings, "database_url", "") or ""
+        if not url:
+            raise RuntimeError(
+                "db_backend=supabase requires POLYCLAW_DATABASE_URL (postgresql+psycopg://...) to be set."
+            )
+    else:
+        url = f"sqlite:///{db_path}"
+
+    engine = make_engine(url)
+    market_data = LiveMarketDataProvider(clob=clob) if clob is not None else LiveMarketDataProvider()
+    registry = AgentRegistry(engine)
+    registry.create_agent(
+        DASHBOARD_AGENT_ID,
+        name="Dashboard",
+        starting_balance=starting_balance,
+        tier=AgentTier.HOSTED_INPROCESS,
+    )
     return PaperTrader(
         agent_id=DASHBOARD_AGENT_ID,
         engine=engine,
