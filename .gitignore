@@ -35,3 +35,8 @@ Thumbs.db
 .coverage
 htmlcov/
 .vercel
+.env*.local
+
+.env
+*.db
+data/agent_arena_state.json
