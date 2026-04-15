@@ -63,7 +63,9 @@ class BetSelector:
                 max_pairwise_correlation=min(0.85, c.max_pairwise_correlation + 0.15),
             ):
                 continue
-            self._append_candidate(candidate, selected, selected_ids, event_group_counts, fill_tag="relaxed-fill")
+            self._append_candidate(
+                candidate, selected, selected_ids, event_group_counts, fill_tag="relaxed-fill"
+            )
 
         # Tier 3: coverage mode to ensure 5 picks/category when market quality is sparse.
         for candidate in ranked:
@@ -73,7 +75,9 @@ class BetSelector:
                 continue
             if not self._passes_coverage(candidate, c):
                 continue
-            self._append_candidate(candidate, selected, selected_ids, event_group_counts, fill_tag="coverage-fill")
+            self._append_candidate(
+                candidate, selected, selected_ids, event_group_counts, fill_tag="coverage-fill"
+            )
 
         return selected
 
@@ -97,8 +101,7 @@ class BetSelector:
         edge_threshold = max(EDGE_EPSILON, c.min_edge, _alpha_edge_floor(m, c))
         return (
             not _is_extreme_probability(m, c)
-            and
-            m.confidence >= c.min_confidence
+            and m.confidence >= c.min_confidence
             and m.selected_edge > edge_threshold
             and m.features.liquidity_score >= c.min_liquidity_score
             and m.features.spread_bps <= c.max_spread_bps
@@ -111,8 +114,7 @@ class BetSelector:
         edge_threshold = max(EDGE_EPSILON, c.relaxed_min_edge, _alpha_edge_floor(m, c))
         return (
             not _is_extreme_probability(m, c)
-            and
-            m.confidence >= c.relaxed_min_confidence
+            and m.confidence >= c.relaxed_min_confidence
             and m.selected_edge > edge_threshold
             and m.features.liquidity_score >= c.relaxed_min_liquidity_score
             and m.features.spread_bps <= c.relaxed_max_spread_bps
@@ -122,10 +124,7 @@ class BetSelector:
 
     @staticmethod
     def _passes_coverage(m: ScoredMarket, c) -> bool:
-        return (
-            not _is_extreme_probability(m, c)
-            and m.features.spread_bps <= c.coverage_max_spread_bps
-        )
+        return not _is_extreme_probability(m, c) and m.features.spread_bps <= c.coverage_max_spread_bps
 
     def _violates_diversification(
         self,

@@ -192,7 +192,9 @@ def test_overview_exposes_paper_summary_health_and_capabilities(dashboard_servic
     assert overview["pendingOpportunityCount"] == 1
 
 
-def test_opportunities_fall_back_to_cached_data_if_gamma_fails_after_first_sync(dashboard_service: DashboardService):
+def test_opportunities_fall_back_to_cached_data_if_gamma_fails_after_first_sync(
+    dashboard_service: DashboardService,
+):
     first_payload = dashboard_service.list_opportunities()
     dashboard_service.gamma.fail = True
 
@@ -214,7 +216,9 @@ def test_opportunities_endpoint_uses_dashboard_service(monkeypatch, dashboard_se
     assert payload["items"][0]["category"] == "NBA"
 
 
-def test_positions_endpoint_reports_live_holdings_unavailable(monkeypatch, dashboard_service: DashboardService):
+def test_positions_endpoint_reports_live_holdings_unavailable(
+    monkeypatch, dashboard_service: DashboardService
+):
     monkeypatch.setattr("polyclaw.web.app.get_dashboard_service", lambda: dashboard_service)
 
     client = flask_app.test_client()

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 class SupabaseRow(dict):
     """Dict subclass that supports both row["key"] and row[index] access."""
+
     def __getitem__(self, key):
         if isinstance(key, str):
             return super().__getitem__(key)
@@ -39,7 +40,9 @@ class SupabaseDB:
             timeout=15.0,
         )
 
-    def select(self, table: str, *, where: dict | None = None, order: str | None = None, limit: int | None = None) -> list[SupabaseRow]:
+    def select(
+        self, table: str, *, where: dict | None = None, order: str | None = None, limit: int | None = None
+    ) -> list[SupabaseRow]:
         params: dict[str, str] = {}
         if where:
             for k, v in where.items():

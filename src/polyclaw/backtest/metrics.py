@@ -24,7 +24,9 @@ def compute_metrics(
         max_drawdown_pct=round(dd_pct, 2),
         max_drawdown_usd=round(dd_usd, 2),
         win_rate=round(trade_stats["win_rate"], 4),
-        profit_factor=round(trade_stats["profit_factor"], 2) if trade_stats["profit_factor"] is not None else None,
+        profit_factor=round(trade_stats["profit_factor"], 2)
+        if trade_stats["profit_factor"] is not None
+        else None,
         avg_trade_pnl=round(trade_stats["avg_pnl"], 2),
         total_trades=trade_stats["total"],
         winning_trades=trade_stats["wins"],
@@ -93,9 +95,16 @@ def _compute_trade_stats(trades: list[TradeRecord]) -> dict:
     """Compute per-trade PnL by pairing BUY/SELL for each token."""
     if not trades:
         return {
-            "win_rate": 0.0, "profit_factor": None, "avg_pnl": 0.0,
-            "total": 0, "wins": 0, "losses": 0,
-            "avg_win": 0.0, "avg_loss": 0.0, "best": 0.0, "worst": 0.0,
+            "win_rate": 0.0,
+            "profit_factor": None,
+            "avg_pnl": 0.0,
+            "total": 0,
+            "wins": 0,
+            "losses": 0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
+            "best": 0.0,
+            "worst": 0.0,
         }
 
     # Track cost basis per token
@@ -122,14 +131,18 @@ def _compute_trade_stats(trades: list[TradeRecord]) -> dict:
             sell_pnl -= t.fee
             pnls.append(sell_pnl)
 
-    # Also subtract buy fees from overall tracking
-    total_buy_fees = sum(t.fee for t in trades if t.side == "BUY")
-
     if not pnls:
         return {
-            "win_rate": 0.0, "profit_factor": None, "avg_pnl": 0.0,
-            "total": len(trades), "wins": 0, "losses": 0,
-            "avg_win": 0.0, "avg_loss": 0.0, "best": 0.0, "worst": 0.0,
+            "win_rate": 0.0,
+            "profit_factor": None,
+            "avg_pnl": 0.0,
+            "total": len(trades),
+            "wins": 0,
+            "losses": 0,
+            "avg_win": 0.0,
+            "avg_loss": 0.0,
+            "best": 0.0,
+            "worst": 0.0,
         }
 
     wins = [p for p in pnls if p > 0]

@@ -13,9 +13,9 @@ class NothingHappensStrategy(Strategy):
     name = "nothing_happens"
 
     def __init__(self):
-        self.spike_threshold: float = 0.08     # 8% price jump = spike
-        self.lookback_ticks: int = 5           # check last 5 ticks for spike
-        self.reversion_tolerance: float = 0.02 # exit when within 2% of pre-spike
+        self.spike_threshold: float = 0.08  # 8% price jump = spike
+        self.lookback_ticks: int = 5  # check last 5 ticks for spike
+        self.reversion_tolerance: float = 0.02  # exit when within 2% of pre-spike
         self.trade_size: float = 200.0
         self._pre_spike_price: dict[str, float] = {}
 
@@ -50,7 +50,7 @@ class NothingHappensStrategy(Strategy):
             return Signal(
                 side=Side.BUY,
                 size=self.trade_size,
-                reason=f"Fade crash: dropped {change_pct*100:.1f}%, expect reversion to {baseline:.3f}",
+                reason=f"Fade crash: dropped {change_pct * 100:.1f}%, expect reversion to {baseline:.3f}",
             )
 
         # Check for reversion exit

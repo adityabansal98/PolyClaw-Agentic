@@ -46,9 +46,7 @@ class IngestionScheduler:
                 self.price_ingester.ingest_prices()
                 self.price_ingester.ingest_orderbooks()
 
-                logger.info(
-                    "Cycle complete. Sleeping %ds...", settings.price_refresh_interval
-                )
+                logger.info("Cycle complete. Sleeping %ds...", settings.price_refresh_interval)
                 time.sleep(settings.price_refresh_interval)
 
             except KeyboardInterrupt:

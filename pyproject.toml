@@ -46,8 +46,13 @@ select = [
     "SIM",  # flake8-simplify
 ]
 ignore = [
-    "E501",  # line too long — formatter handles wrap
-    "B008",  # function call in default arg — pydantic settings pattern
+    "E501",   # line too long — formatter handles wrap
+    "B008",   # function call in default arg — pydantic settings pattern
+    "E741",   # ambiguous var name "l" — used consistently for orderbook "level"
+    "B027",   # empty method in ABC without @abstractmethod — intentional default hooks
+    "SIM102", # nested if — sometimes more readable
+    "SIM103", # return condition directly — sometimes less readable
+    "SIM105", # use contextlib.suppress — extra import per site
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -69,6 +74,13 @@ exclude = [
 [[tool.mypy.overrides]]
 module = ["polyclaw.trading.*", "polyclaw.clients.*", "polyclaw.storage.*"]
 disallow_untyped_defs = false
+
+# PaperTrader is rewritten in Phase 1 (multi-tenant + Decimal + clock injection);
+# the union-attr noise is from _sb/_conn being Optional-typed but backend-branched.
+# Suppress here rather than bolt 29 assertions onto code that's about to be deleted.
+[[tool.mypy.overrides]]
+module = "polyclaw.trading.paper_trader"
+disable_error_code = ["union-attr"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

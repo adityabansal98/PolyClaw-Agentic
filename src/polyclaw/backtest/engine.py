@@ -21,11 +21,12 @@ from polyclaw.trading.models import (
 logger = logging.getLogger(__name__)
 
 EQUITY_SAMPLE_INTERVAL = 50  # record equity every N ticks
-VOLATILITY_WINDOW = 20       # rolling window for volatility calc
+VOLATILITY_WINDOW = 20  # rolling window for volatility calc
 
 
 class _Position:
     """Lightweight in-memory position tracker."""
+
     __slots__ = ("shares", "avg_entry", "realized_pnl", "market_id", "question", "outcome")
 
     def __init__(self, market_id: str = "", question: str = "", outcome: str = ""):
@@ -47,9 +48,9 @@ class BacktestEngine(TraderInterface):
         self,
         starting_cash: float = 10_000.0,
         fee_bps: int = 0,
-        slippage_pct: float = 0.005,    # 0.5% slippage per trade
-        fill_delay_ticks: int = 0,       # ticks to delay execution (0 = instant)
-        max_trade_usd: float = 50_000.0, # max single trade size
+        slippage_pct: float = 0.005,  # 0.5% slippage per trade
+        fill_delay_ticks: int = 0,  # ticks to delay execution (0 = instant)
+        max_trade_usd: float = 50_000.0,  # max single trade size
     ):
         self._starting_cash = starting_cash
         self._cash = starting_cash
@@ -78,11 +79,11 @@ class BacktestEngine(TraderInterface):
             return price
         if side == Side.BUY:
             slipped = price * (1 + self._slippage_pct)
-            self._total_slippage += (slipped - price)
+            self._total_slippage += slipped - price
             return min(slipped, 0.999)
         else:
             slipped = price * (1 - self._slippage_pct)
-            self._total_slippage += (price - slipped)
+            self._total_slippage += price - slipped
             return max(slipped, 0.001)
 
     def _position_value(self) -> float:
@@ -94,12 +95,14 @@ class BacktestEngine(TraderInterface):
 
     def _record_equity(self, timestamp: int):
         pv = self._position_value()
-        self._equity_curve.append(EquityPoint(
-            timestamp=timestamp,
-            cash=round(self._cash, 4),
-            position_value=round(pv, 4),
-            total_equity=round(self._cash + pv, 4),
-        ))
+        self._equity_curve.append(
+            EquityPoint(
+                timestamp=timestamp,
+                cash=round(self._cash, 4),
+                position_value=round(pv, 4),
+                total_equity=round(self._cash + pv, 4),
+            )
+        )
 
     # ── TraderInterface ─────────────────────────────────────
 
@@ -117,22 +120,39 @@ class BacktestEngine(TraderInterface):
                 return OrderResult(order_id=trade_id, status=OrderStatus.REJECTED, message="No cash")
             fee = cost * self._fee_rate()
             shares = cost / fill_price
-            self._cash -= (cost + fee)
+            self._cash -= cost + fee
 
-            pos = self._positions.setdefault(order.token_id, _Position(order.market_id, order.market_question, order.outcome))
+            pos = self._positions.setdefault(
+                order.token_id, _Position(order.market_id, order.market_question, order.outcome)
+            )
             new_shares = pos.shares + shares
-            pos.avg_entry = ((pos.shares * pos.avg_entry) + (shares * fill_price)) / new_shares if new_shares > 0 else 0
+            pos.avg_entry = (
+                ((pos.shares * pos.avg_entry) + (shares * fill_price)) / new_shares if new_shares > 0 else 0
+            )
             pos.shares = new_shares
 
-            self._trades.append(TradeRecord(
-                timestamp=self._current_ts, token_id=order.token_id,
-                market_id=order.market_id, market_question=order.market_question,
-                outcome=order.outcome, side="BUY", price=fill_price,
-                shares=round(shares, 4), cost=round(cost, 4), fee=round(fee, 4),
-                reason=getattr(order, '_reason', ''),
-            ))
-            return OrderResult(order_id=trade_id, status=OrderStatus.FILLED,
-                               filled_price=fill_price, filled_size=shares, total_cost=cost)
+            self._trades.append(
+                TradeRecord(
+                    timestamp=self._current_ts,
+                    token_id=order.token_id,
+                    market_id=order.market_id,
+                    market_question=order.market_question,
+                    outcome=order.outcome,
+                    side="BUY",
+                    price=fill_price,
+                    shares=round(shares, 4),
+                    cost=round(cost, 4),
+                    fee=round(fee, 4),
+                    reason=getattr(order, "_reason", ""),
+                )
+            )
+            return OrderResult(
+                order_id=trade_id,
+                status=OrderStatus.FILLED,
+                filled_price=fill_price,
+                filled_size=shares,
+                total_cost=cost,
+            )
 
         else:  # SELL
             fill_price = self._apply_slippage(price, Side.SELL)
@@ -145,17 +165,30 @@ class BacktestEngine(TraderInterface):
             realized = sell_shares * (fill_price - pos.avg_entry)
             pos.shares -= sell_shares
             pos.realized_pnl += realized
-            self._cash += (proceeds - fee)
+            self._cash += proceeds - fee
 
-            self._trades.append(TradeRecord(
-                timestamp=self._current_ts, token_id=order.token_id,
-                market_id=order.market_id, market_question=order.market_question,
-                outcome=order.outcome, side="SELL", price=fill_price,
-                shares=round(sell_shares, 4), cost=round(proceeds, 4), fee=round(fee, 4),
-                reason=getattr(order, '_reason', ''),
-            ))
-            return OrderResult(order_id=trade_id, status=OrderStatus.FILLED,
-                               filled_price=fill_price, filled_size=sell_shares, total_cost=proceeds)
+            self._trades.append(
+                TradeRecord(
+                    timestamp=self._current_ts,
+                    token_id=order.token_id,
+                    market_id=order.market_id,
+                    market_question=order.market_question,
+                    outcome=order.outcome,
+                    side="SELL",
+                    price=fill_price,
+                    shares=round(sell_shares, 4),
+                    cost=round(proceeds, 4),
+                    fee=round(fee, 4),
+                    reason=getattr(order, "_reason", ""),
+                )
+            )
+            return OrderResult(
+                order_id=trade_id,
+                status=OrderStatus.FILLED,
+                filled_price=fill_price,
+                filled_size=sell_shares,
+                total_cost=proceeds,
+            )
 
     def cancel_order(self, order_id: str) -> bool:
         return False
@@ -163,21 +196,27 @@ class BacktestEngine(TraderInterface):
     def get_positions(self) -> list[Position]:
         return [
             Position(
-                token_id=tid, market_id=pos.market_id,
-                market_question=pos.question, outcome=pos.outcome,
-                shares=pos.shares, avg_entry_price=pos.avg_entry,
+                token_id=tid,
+                market_id=pos.market_id,
+                market_question=pos.question,
+                outcome=pos.outcome,
+                shares=pos.shares,
+                avg_entry_price=pos.avg_entry,
                 current_price=self._current_prices.get(tid),
                 unrealized_pnl=pos.shares * (self._current_prices.get(tid, pos.avg_entry) - pos.avg_entry),
             )
-            for tid, pos in self._positions.items() if pos.shares > 0
+            for tid, pos in self._positions.items()
+            if pos.shares > 0
         ]
 
     def get_portfolio(self) -> PortfolioSummary:
         positions = self.get_positions()
         pv = sum(p.shares * (p.current_price or p.avg_entry_price) for p in positions)
         return PortfolioSummary(
-            cash_balance=self._cash, positions=positions,
-            total_position_value=pv, total_equity=self._cash + pv,
+            cash_balance=self._cash,
+            positions=positions,
+            total_position_value=pv,
+            total_equity=self._cash + pv,
             total_realized_pnl=sum(p.realized_pnl for p in self._positions.values()),
             total_unrealized_pnl=sum(p.unrealized_pnl or 0 for p in positions),
         )
@@ -226,7 +265,7 @@ class BacktestEngine(TraderInterface):
                 self._process_pending_signals(idx)
 
             # Build price history (no look-ahead)
-            prices_so_far = [p for _, p in md.ticks[:tick_i + 1]]
+            prices_so_far = [p for _, p in md.ticks[: tick_i + 1]]
 
             # Compute enhanced fields
             prev_price = prices_so_far[-2] if len(prices_so_far) >= 2 else price
@@ -260,12 +299,17 @@ class BacktestEngine(TraderInterface):
                 if self._fill_delay_ticks > 0:
                     # Queue for delayed execution
                     self._pending_signals.append(
-                        (idx + self._fill_delay_ticks, signal, token_id,
-                         md.market_id, md.market_question, md.outcome)
+                        (
+                            idx + self._fill_delay_ticks,
+                            signal,
+                            token_id,
+                            md.market_id,
+                            md.market_question,
+                            md.outcome,
+                        )
                     )
                 else:
-                    self._execute_signal(signal, token_id, md.market_id,
-                                         md.market_question, md.outcome)
+                    self._execute_signal(signal, token_id, md.market_id, md.market_question, md.outcome)
                 self._record_equity(ts)
             elif idx % EQUITY_SAMPLE_INTERVAL == 0:
                 self._record_equity(ts)
@@ -294,11 +338,10 @@ class BacktestEngine(TraderInterface):
             trades=self._trades,
             equity_curve=self._equity_curve,
             metrics=metrics,
-            strategy_params={k: v for k, v in strategy.__dict__.items() if not k.startswith('_')},
+            strategy_params={k: v for k, v in strategy.__dict__.items() if not k.startswith("_")},
         )
 
-    def _execute_signal(self, signal: Signal, token_id: str, market_id: str,
-                        question: str, outcome: str):
+    def _execute_signal(self, signal: Signal, token_id: str, market_id: str, question: str, outcome: str):
         order = TradeOrder(
             token_id=token_id,
             market_id=market_id,

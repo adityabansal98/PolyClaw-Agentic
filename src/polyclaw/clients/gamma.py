@@ -1,5 +1,4 @@
 import logging
-import time
 
 import httpx
 
@@ -56,7 +55,10 @@ class GammaClient:
 
             logger.info(
                 "Fetched page offset=%d: %d markets (%d new, %d total)",
-                offset, len(page), new_count, len(all_markets),
+                offset,
+                len(page),
+                new_count,
+                len(all_markets),
             )
 
             if len(page) < page_size:

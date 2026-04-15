@@ -22,7 +22,11 @@ DETAIL_CACHE_TTL = 8
 TOP_LEVEL_DEPTH = 5
 DEFAULT_OPPORTUNITY_LIMIT = 36
 
-STRATEGY_OUTPUT_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "live_selection_output_external_required.json"
+STRATEGY_OUTPUT_PATH = (
+    Path(__file__).resolve().parent.parent.parent.parent
+    / "data"
+    / "live_selection_output_external_required.json"
+)
 
 
 def _load_strategy_index() -> dict[str, dict[str, Any]]:
@@ -337,7 +341,9 @@ def classify_market(market: Market) -> str | None:
 def price_map(market: Market) -> dict[str, float | None]:
     prices: dict[str, float | None] = {}
     for index, outcome in enumerate(market.outcomes):
-        prices[outcome.upper()] = to_float(market.outcome_prices[index]) if index < len(market.outcome_prices) else None
+        prices[outcome.upper()] = (
+            to_float(market.outcome_prices[index]) if index < len(market.outcome_prices) else None
+        )
     return prices
 
 
@@ -393,7 +399,9 @@ class DashboardService:
     def __post_init__(self):
         self.strategy_index = _load_strategy_index()
         if self.strategy_index:
-            logger.info("Loaded %d strategy scores from %s", len(self.strategy_index), STRATEGY_OUTPUT_PATH.name)
+            logger.info(
+                "Loaded %d strategy scores from %s", len(self.strategy_index), STRATEGY_OUTPUT_PATH.name
+            )
 
     def _strategy_fields(self, market_id: str) -> dict[str, Any]:
         """Return strategy-enriched fields for a given market, falling back to empty defaults."""
@@ -443,9 +451,13 @@ class DashboardService:
             "confidence": round(confidence, 4) if confidence is not None else None,
             "signalStrength": round(strategy.get("score", 0), 4) or None,
             "strategyAvailable": True,
-            "strategySummary": f"{'Buy' if side == 'YES' else 'Sell'} {side} — EV {ev:+.1%}, edge {edge:.1%}" if ev is not None and edge is not None else None,
+            "strategySummary": f"{'Buy' if side == 'YES' else 'Sell'} {side} — EV {ev:+.1%}, edge {edge:.1%}"
+            if ev is not None and edge is not None
+            else None,
             "thesis": " ".join(thesis_parts) if thesis_parts else None,
-            "invalidation": f"Edge collapses if market moves past model price ({p_model:.1%})" if p_model is not None else None,
+            "invalidation": f"Edge collapses if market moves past model price ({p_model:.1%})"
+            if p_model is not None
+            else None,
             "riskFlags": risk_flags,
         }
 
@@ -512,7 +524,9 @@ class DashboardService:
                 continue
             categorized.append(market)
 
-        categorized.sort(key=lambda market: (market.volume_24hr or market.volume or 0, market.liquidity or 0), reverse=True)
+        categorized.sort(
+            key=lambda market: (market.volume_24hr or market.volume or 0, market.liquidity or 0), reverse=True
+        )
         selected = categorized[:DEFAULT_OPPORTUNITY_LIMIT]
         primary_tokens: list[str] = []
 
@@ -557,7 +571,11 @@ class DashboardService:
 
             market_depth = top_book_depth(orderbook) if orderbook else 0.0
             default_stake = default_ticket_size(market.liquidity, market_depth or market.liquidity * 0.02)
-            spread_bps = round((orderbook.spread or 0) * 10_000) if orderbook and orderbook.spread is not None else None
+            spread_bps = (
+                round((orderbook.spread or 0) * 10_000)
+                if orderbook and orderbook.spread is not None
+                else None
+            )
             discovered_at = market.created_at or market.start_date or market.end_date or isoformat()
             updated_at = market.updated_at or isoformat()
             tags = [
@@ -646,22 +664,31 @@ class DashboardService:
         for trade in trade_history:
             token_id = trade["token_id"]
             opened_lookup[token_id] = min(trade["timestamp"], opened_lookup.get(token_id, trade["timestamp"]))
-            updated_lookup[token_id] = max(trade["timestamp"], updated_lookup.get(token_id, trade["timestamp"]))
+            updated_lookup[token_id] = max(
+                trade["timestamp"], updated_lookup.get(token_id, trade["timestamp"])
+            )
 
         items: list[dict[str, Any]] = []
         for position in positions:
-            category = classify_market(
-                Market(
-                    id=position.token_id,
-                    question=position.market_question or position.market_id,
-                    condition_id=position.market_id,
-                    slug=position.market_question.lower().replace(" ", "-") if position.market_question else position.market_id,
-                    outcomes=[position.outcome],
-                    outcome_prices=[],
-                    clob_token_ids=[position.token_id],
+            category = (
+                classify_market(
+                    Market(
+                        id=position.token_id,
+                        question=position.market_question or position.market_id,
+                        condition_id=position.market_id,
+                        slug=position.market_question.lower().replace(" ", "-")
+                        if position.market_question
+                        else position.market_id,
+                        outcomes=[position.outcome],
+                        outcome_prices=[],
+                        clob_token_ids=[position.token_id],
+                    )
                 )
-            ) or "Uncategorized"
-            current_price = position.current_price if position.current_price is not None else position.avg_entry_price
+                or "Uncategorized"
+            )
+            current_price = (
+                position.current_price if position.current_price is not None else position.avg_entry_price
+            )
             liquidation_value = position.shares * current_price
             opened_at = opened_lookup.get(position.token_id)
             updated_at = updated_lookup.get(position.token_id)
@@ -684,8 +711,12 @@ class DashboardService:
                     "liquidationValue": liquidation_value,
                     "unrealizedPnl": position.unrealized_pnl or 0.0,
                     "status": "open",
-                    "openedAt": isoformat(datetime.fromtimestamp(opened_at / 1000, tz=timezone.utc)) if opened_at else isoformat(),
-                    "updatedAt": isoformat(datetime.fromtimestamp(updated_at / 1000, tz=timezone.utc)) if updated_at else isoformat(),
+                    "openedAt": isoformat(datetime.fromtimestamp(opened_at / 1000, tz=timezone.utc))
+                    if opened_at
+                    else isoformat(),
+                    "updatedAt": isoformat(datetime.fromtimestamp(updated_at / 1000, tz=timezone.utc))
+                    if updated_at
+                    else isoformat(),
                     "modelView": "Strategy backend is not connected yet. This mark is backed by live market data only.",
                     "thesisAtEntry": "Human-approved paper trade submitted through the dashboard.",
                     "exitGuidance": "Use the paper controls to reduce or close when your thesis changes.",
@@ -719,7 +750,9 @@ class DashboardService:
             "totalRealizedPnl": portfolio.total_realized_pnl,
             "totalUnrealizedPnl": portfolio.total_unrealized_pnl,
             "totalReturnImmediate": portfolio.total_equity - settings.paper_starting_balance,
-            "openExposure": sum(position.shares * position.avg_entry_price for position in portfolio.positions),
+            "openExposure": sum(
+                position.shares * position.avg_entry_price for position in portfolio.positions
+            ),
             "availableCapital": portfolio.cash_balance,
             "activePositions": len(portfolio.positions),
             "pendingApprovals": 0,
@@ -749,7 +782,9 @@ class DashboardService:
                 raise
 
         limit = limit or DEFAULT_OPPORTUNITY_LIMIT
-        freshness = self._serialize_freshness(self.opportunities_cache, OPPORTUNITY_CACHE_TTL * 2, "opportunities")
+        freshness = self._serialize_freshness(
+            self.opportunities_cache, OPPORTUNITY_CACHE_TTL * 2, "opportunities"
+        )
         return {
             "generatedAt": isoformat(),
             "freshness": freshness,
@@ -802,7 +837,9 @@ class DashboardService:
                     "price": price,
                     "bestBid": orderbook.best_bid if orderbook else None,
                     "bestAsk": orderbook.best_ask if orderbook else None,
-                    "spreadBps": round((orderbook.spread or 0) * 10_000) if orderbook and orderbook.spread is not None else None,
+                    "spreadBps": round((orderbook.spread or 0) * 10_000)
+                    if orderbook and orderbook.spread is not None
+                    else None,
                     "depth": top_book_depth(orderbook) if orderbook else 0.0,
                     "midpoint": orderbook.midpoint if orderbook else None,
                 }
@@ -854,7 +891,9 @@ class DashboardService:
             "generatedAt": isoformat(),
             "environment": "paper",
             "available": True,
-            "freshness": self._serialize_freshness(self.positions_cache, POSITIONS_CACHE_TTL * 2, "positions"),
+            "freshness": self._serialize_freshness(
+                self.positions_cache, POSITIONS_CACHE_TTL * 2, "positions"
+            ),
             "items": items,
         }
 
@@ -891,7 +930,9 @@ class DashboardService:
             "generatedAt": isoformat(),
             "environment": "paper",
             "available": True,
-            "freshness": self._serialize_freshness(self.portfolio_cache, PORTFOLIO_CACHE_TTL * 2, "portfolio"),
+            "freshness": self._serialize_freshness(
+                self.portfolio_cache, PORTFOLIO_CACHE_TTL * 2, "portfolio"
+            ),
             "cash_balance": summary["cashBalance"],
             "total_position_value": summary["totalPositionValue"],
             "total_equity": summary["totalEquity"],
@@ -939,7 +980,9 @@ class DashboardService:
                 "description": "Gamma market metadata transformed into dashboard opportunities.",
                 "status": self._service_status(self.opportunities_cache, OPPORTUNITY_CACHE_TTL * 2),
                 "latencyMs": self.opportunities_cache.latency_ms or 0,
-                "lastHeartbeatAt": self._serialize_freshness(self.opportunities_cache, OPPORTUNITY_CACHE_TTL * 2, "markets")["updatedAt"],
+                "lastHeartbeatAt": self._serialize_freshness(
+                    self.opportunities_cache, OPPORTUNITY_CACHE_TTL * 2, "markets"
+                )["updatedAt"],
                 "owner": "backend",
                 "critical": True,
             },
@@ -949,7 +992,9 @@ class DashboardService:
                 "description": "SQLite-backed paper positions and portfolio summary.",
                 "status": self._service_status(self.portfolio_cache, PORTFOLIO_CACHE_TTL * 2),
                 "latencyMs": self.portfolio_cache.latency_ms or 0,
-                "lastHeartbeatAt": self._serialize_freshness(self.portfolio_cache, PORTFOLIO_CACHE_TTL * 2, "portfolio")["updatedAt"],
+                "lastHeartbeatAt": self._serialize_freshness(
+                    self.portfolio_cache, PORTFOLIO_CACHE_TTL * 2, "portfolio"
+                )["updatedAt"],
                 "owner": "backend",
                 "critical": True,
             },
@@ -975,7 +1020,9 @@ class DashboardService:
             {
                 "id": "strategy-status",
                 "tone": "positive" if self.strategy_index else "neutral",
-                "title": f"Strategy scoring active — {len(self.strategy_index)} markets scored" if self.strategy_index else "Strategy recommendations are not connected yet",
+                "title": f"Strategy scoring active — {len(self.strategy_index)} markets scored"
+                if self.strategy_index
+                else "Strategy recommendations are not connected yet",
                 "description": (
                     "Opportunities with matched strategies show expected return, confidence, and recommended side."
                     if self.strategy_index
@@ -1021,9 +1068,15 @@ class DashboardService:
                 "liveHoldingsAvailable": False,
             },
             "dataFreshness": {
-                "opportunities": self._serialize_freshness(self.opportunities_cache, OPPORTUNITY_CACHE_TTL * 2, "opportunities"),
-                "portfolio": self._serialize_freshness(self.portfolio_cache, PORTFOLIO_CACHE_TTL * 2, "portfolio"),
-                "positions": self._serialize_freshness(self.positions_cache, POSITIONS_CACHE_TTL * 2, "positions"),
+                "opportunities": self._serialize_freshness(
+                    self.opportunities_cache, OPPORTUNITY_CACHE_TTL * 2, "opportunities"
+                ),
+                "portfolio": self._serialize_freshness(
+                    self.portfolio_cache, PORTFOLIO_CACHE_TTL * 2, "portfolio"
+                ),
+                "positions": self._serialize_freshness(
+                    self.positions_cache, POSITIONS_CACHE_TTL * 2, "positions"
+                ),
             },
             "paperSummary": paper_summary,
             "liveSummary": {

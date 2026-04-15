@@ -9,30 +9,32 @@ from polyclaw.trading.models import Side
 @dataclass
 class TickContext:
     """Everything a strategy sees at each tick."""
+
     timestamp: int
     token_id: str
     market_id: str
     market_question: str
     price: float
-    prices: list[float]       # all prices up to this tick (no look-ahead)
+    prices: list[float]  # all prices up to this tick (no look-ahead)
     cash: float
     position_shares: float
     avg_entry_price: float
     tick_index: int
     total_ticks: int
     # Enhanced fields for research-backed strategies
-    bankroll: float = 0.0          # total equity (cash + all position values)
-    volatility: float = 0.0       # rolling std of last 20 prices
-    price_change_pct: float = 0.0 # % change from previous tick
-    high_watermark: float = 0.0   # highest price seen so far for this market
-    low_watermark: float = 1.0    # lowest price seen so far for this market
+    bankroll: float = 0.0  # total equity (cash + all position values)
+    volatility: float = 0.0  # rolling std of last 20 prices
+    price_change_pct: float = 0.0  # % change from previous tick
+    high_watermark: float = 0.0  # highest price seen so far for this market
+    low_watermark: float = 1.0  # lowest price seen so far for this market
 
 
 @dataclass
 class Signal:
     """A trading signal emitted by a strategy."""
+
     side: Side
-    size: float               # USDC for BUY, shares for SELL
+    size: float  # USDC for BUY, shares for SELL
     reason: str = ""
 
 

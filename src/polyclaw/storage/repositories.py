@@ -32,13 +32,30 @@ class MarketRepository:
         """
         rows = [
             (
-                m.id, m.question, m.condition_id, m.slug, m.description,
-                json.dumps(m.outcomes), json.dumps(m.outcome_prices), json.dumps(m.clob_token_ids),
-                m.active, m.closed, m.accepting_orders, m.neg_risk,
-                m.liquidity, m.volume, m.volume_24hr, m.volume_1wk, m.volume_1mo,
-                m.order_price_min_tick_size, m.order_min_size,
-                m.end_date, m.start_date, m.group_item_title,
-                m.created_at, m.updated_at,
+                m.id,
+                m.question,
+                m.condition_id,
+                m.slug,
+                m.description,
+                json.dumps(m.outcomes),
+                json.dumps(m.outcome_prices),
+                json.dumps(m.clob_token_ids),
+                m.active,
+                m.closed,
+                m.accepting_orders,
+                m.neg_risk,
+                m.liquidity,
+                m.volume,
+                m.volume_24hr,
+                m.volume_1wk,
+                m.volume_1mo,
+                m.order_price_min_tick_size,
+                m.order_min_size,
+                m.end_date,
+                m.start_date,
+                m.group_item_title,
+                m.created_at,
+                m.updated_at,
             )
             for m in markets
         ]
@@ -81,11 +98,16 @@ class OrderBookRepository:
         """
         rows = [
             (
-                ob.token_id, ob.market_id,
+                ob.token_id,
+                ob.market_id,
                 json.dumps([{"price": l.price, "size": l.size} for l in ob.bids]),
                 json.dumps([{"price": l.price, "size": l.size} for l in ob.asks]),
-                ob.best_bid, ob.best_ask, ob.spread, ob.midpoint,
-                ob.neg_risk, ob.timestamp,
+                ob.best_bid,
+                ob.best_ask,
+                ob.spread,
+                ob.midpoint,
+                ob.neg_risk,
+                ob.timestamp,
             )
             for ob in orderbooks
         ]
@@ -124,10 +146,7 @@ class PriceRepository:
                 token_id, market_id, buy_price, sell_price, midpoint, timestamp
             ) VALUES (?, ?, ?, ?, ?, ?)
         """
-        rows = [
-            (p.token_id, p.market_id, p.buy_price, p.sell_price, p.midpoint, p.timestamp)
-            for p in prices
-        ]
+        rows = [(p.token_id, p.market_id, p.buy_price, p.sell_price, p.midpoint, p.timestamp) for p in prices]
         self.conn.executemany(sql, rows)
         self.conn.commit()
         return len(rows)

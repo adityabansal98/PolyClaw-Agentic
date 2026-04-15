@@ -1,5 +1,4 @@
 import logging
-import time
 import uuid
 
 from py_clob_client.client import ClobClient
@@ -19,7 +18,6 @@ from polyclaw.trading.models import (
     OrderStatus,
     PortfolioSummary,
     Position,
-    Side,
     TradeOrder,
     TradeOrderType,
 )
@@ -45,8 +43,7 @@ class LiveTrader(TraderInterface):
         pk = private_key or settings.private_key
         if not pk:
             raise ValueError(
-                "Private key required for live trading. "
-                "Set POLYCLAW_PRIVATE_KEY in your .env file."
+                "Private key required for live trading. Set POLYCLAW_PRIVATE_KEY in your .env file."
             )
 
         self._client = ClobClient(
@@ -110,9 +107,14 @@ class LiveTrader(TraderInterface):
         order_id = resp.get("orderID", resp.get("id", str(uuid.uuid4())))
         status = OrderStatus.FILLED if resp.get("success") else OrderStatus.REJECTED
 
-        logger.info("Market order %s: %s %s %.2f on %s",
-                     status.value, order.side.value, order.size,
-                     order.token_id[:20], order.market_question[:40])
+        logger.info(
+            "Market order %s: %s %s %.2f on %s",
+            status.value,
+            order.side.value,
+            order.size,
+            order.token_id[:20],
+            order.market_question[:40],
+        )
 
         return OrderResult(
             order_id=order_id,
@@ -138,9 +140,14 @@ class LiveTrader(TraderInterface):
         resp = self._client.post_order(signed, orderType=OrderType.GTC)
 
         order_id = resp.get("orderID", resp.get("id", str(uuid.uuid4())))
-        logger.info("Limit order placed: %s %s %.0f @ %.4f on %s",
-                     order.side.value, order.outcome, order.size,
-                     order.price, order.market_question[:40])
+        logger.info(
+            "Limit order placed: %s %s %.0f @ %.4f on %s",
+            order.side.value,
+            order.outcome,
+            order.size,
+            order.price,
+            order.market_question[:40],
+        )
 
         return OrderResult(
             order_id=order_id,
@@ -151,7 +158,7 @@ class LiveTrader(TraderInterface):
     def cancel_order(self, order_id: str) -> bool:
         self._ensure_creds()
         try:
-            resp = self._client.cancel(order_id)
+            self._client.cancel(order_id)
             logger.info("Cancelled order %s", order_id)
             return True
         except Exception as e:
@@ -189,9 +196,7 @@ class LiveTrader(TraderInterface):
     def get_balance(self) -> float:
         self._ensure_creds()
         try:
-            resp = self._client.get_balance_allowance(
-                BalanceAllowanceParams(asset_type="COLLATERAL")
-            )
+            resp = self._client.get_balance_allowance(BalanceAllowanceParams(asset_type="COLLATERAL"))
             return float(resp.get("balance", 0))
         except Exception as e:
             logger.error("Failed to get balance: %s", e)

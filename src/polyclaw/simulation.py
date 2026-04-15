@@ -126,7 +126,13 @@ class AgentArenaSimulation:
             if row is None:
                 self._supabase.insert(
                     AGENTS_TABLE,
-                    {"name": name, "balance": self.starting_balance, "realized_pnl": 0.0, "created_at": now, "updated_at": now},
+                    {
+                        "name": name,
+                        "balance": self.starting_balance,
+                        "realized_pnl": 0.0,
+                        "created_at": now,
+                        "updated_at": now,
+                    },
                 )
             return
         with self._connect() as conn:
@@ -182,7 +188,11 @@ class AgentArenaSimulation:
                     "status": "OPEN",
                 },
             )
-            self._supabase.update(AGENTS_TABLE, {"balance": current_balance - stake, "updated_at": now}, where={"name": agent_name})
+            self._supabase.update(
+                AGENTS_TABLE,
+                {"balance": current_balance - stake, "updated_at": now},
+                where={"name": agent_name},
+            )
             self._supabase.insert(
                 TICKER_TABLE,
                 {
@@ -194,8 +204,12 @@ class AgentArenaSimulation:
             return
 
         with self._connect() as conn:
-            current_balance_row = conn.execute("SELECT balance FROM agents WHERE name = ?", (agent_name,)).fetchone()
-            current_balance = float(current_balance_row["balance"]) if current_balance_row else self.starting_balance
+            current_balance_row = conn.execute(
+                "SELECT balance FROM agents WHERE name = ?", (agent_name,)
+            ).fetchone()
+            current_balance = (
+                float(current_balance_row["balance"]) if current_balance_row else self.starting_balance
+            )
             if stake <= 0 or stake > current_balance:
                 return
             conn.execute(
@@ -219,10 +233,17 @@ class AgentArenaSimulation:
                     now,
                 ),
             )
-            conn.execute("UPDATE agents SET balance = balance - ?, updated_at = ? WHERE name = ?", (stake, now, agent_name))
+            conn.execute(
+                "UPDATE agents SET balance = balance - ?, updated_at = ? WHERE name = ?",
+                (stake, now, agent_name),
+            )
             conn.execute(
                 "INSERT INTO ticker_events (event_type, message, created_at) VALUES (?, ?, ?)",
-                ("BET", f"{agent_name} just bet {stake:.2f} coins on {side} - {recommendation.get('question', 'Unknown market')}", now),
+                (
+                    "BET",
+                    f"{agent_name} just bet {stake:.2f} coins on {side} - {recommendation.get('question', 'Unknown market')}",
+                    now,
+                ),
             )
             conn.commit()
 
@@ -243,19 +264,35 @@ class AgentArenaSimulation:
                 side = str(bet["side"]).upper()
                 shares = float(bet["shares"])
                 stake = float(bet["stake"])
-                pnl = (exit_price_yes - entry_price_yes) * shares if side == "YES" else (entry_price_yes - exit_price_yes) * shares
+                pnl = (
+                    (exit_price_yes - entry_price_yes) * shares
+                    if side == "YES"
+                    else (entry_price_yes - exit_price_yes) * shares
+                )
                 now = _iso_now()
-                self._supabase.update(BETS_TABLE, {"status": "SETTLED", "settled_at": now, "exit_price": exit_price_yes, "pnl": pnl}, where={"id": int(bet["id"])})
+                self._supabase.update(
+                    BETS_TABLE,
+                    {"status": "SETTLED", "settled_at": now, "exit_price": exit_price_yes, "pnl": pnl},
+                    where={"id": int(bet["id"])},
+                )
                 agent = self._supabase.select_one(AGENTS_TABLE, where={"name": str(bet["agent_name"])})
                 if agent:
                     self._supabase.update(
                         AGENTS_TABLE,
-                        {"balance": float(agent["balance"]) + stake + pnl, "realized_pnl": float(agent["realized_pnl"]) + pnl, "updated_at": now},
+                        {
+                            "balance": float(agent["balance"]) + stake + pnl,
+                            "realized_pnl": float(agent["realized_pnl"]) + pnl,
+                            "updated_at": now,
+                        },
                         where={"name": str(bet["agent_name"])},
                     )
                 self._supabase.insert(
                     TICKER_TABLE,
-                    {"event_type": "SETTLEMENT", "message": f"Settled {bet['agent_name']} on {bet['market_id']} ({side}) with PnL {pnl:+.2f}", "created_at": now},
+                    {
+                        "event_type": "SETTLEMENT",
+                        "message": f"Settled {bet['agent_name']} on {bet['market_id']} ({side}) with PnL {pnl:+.2f}",
+                        "created_at": now,
+                    },
                 )
                 settled += 1
             return settled
@@ -274,13 +311,27 @@ class AgentArenaSimulation:
                 side = str(bet["side"]).upper()
                 shares = float(bet["shares"])
                 stake = float(bet["stake"])
-                pnl = (exit_price_yes - entry_price_yes) * shares if side == "YES" else (entry_price_yes - exit_price_yes) * shares
+                pnl = (
+                    (exit_price_yes - entry_price_yes) * shares
+                    if side == "YES"
+                    else (entry_price_yes - exit_price_yes) * shares
+                )
                 now = _iso_now()
-                conn.execute("UPDATE bets SET status = 'SETTLED', settled_at = ?, exit_price = ?, pnl = ? WHERE id = ?", (now, exit_price_yes, pnl, int(bet["id"])))
-                conn.execute("UPDATE agents SET balance = balance + ?, realized_pnl = realized_pnl + ?, updated_at = ? WHERE name = ?", (stake + pnl, pnl, now, str(bet["agent_name"])))
+                conn.execute(
+                    "UPDATE bets SET status = 'SETTLED', settled_at = ?, exit_price = ?, pnl = ? WHERE id = ?",
+                    (now, exit_price_yes, pnl, int(bet["id"])),
+                )
+                conn.execute(
+                    "UPDATE agents SET balance = balance + ?, realized_pnl = realized_pnl + ?, updated_at = ? WHERE name = ?",
+                    (stake + pnl, pnl, now, str(bet["agent_name"])),
+                )
                 conn.execute(
                     "INSERT INTO ticker_events (event_type, message, created_at) VALUES (?, ?, ?)",
-                    ("SETTLEMENT", f"Settled {bet['agent_name']} on {bet['market_id']} ({side}) with PnL {pnl:+.2f}", now),
+                    (
+                        "SETTLEMENT",
+                        f"Settled {bet['agent_name']} on {bet['market_id']} ({side}) with PnL {pnl:+.2f}",
+                        now,
+                    ),
                 )
                 settled += 1
             conn.commit()
@@ -291,7 +342,9 @@ class AgentArenaSimulation:
             rows = self._supabase.select(AGENTS_TABLE, order="balance.desc")
         else:
             with self._connect() as conn:
-                rows = conn.execute("SELECT name, balance, realized_pnl FROM agents ORDER BY balance DESC").fetchall()
+                rows = conn.execute(
+                    "SELECT name, balance, realized_pnl FROM agents ORDER BY balance DESC"
+                ).fetchall()
         return [
             {
                 "agent": str(row["name"]),
@@ -304,7 +357,9 @@ class AgentArenaSimulation:
 
     def active_bets(self) -> list[dict[str, Any]]:
         if self._use_supabase:
-            rows = self._supabase.select(BETS_TABLE, where={"status": "OPEN"}, order="opened_at.desc", limit=100)
+            rows = self._supabase.select(
+                BETS_TABLE, where={"status": "OPEN"}, order="opened_at.desc", limit=100
+            )
             return [
                 {
                     "agent_name": row["agent_name"],
@@ -329,7 +384,9 @@ class AgentArenaSimulation:
 
     def agent_bets(self, agent_name: str, *, limit: int = 100) -> list[dict[str, Any]]:
         if self._use_supabase:
-            rows = self._supabase.select(BETS_TABLE, where={"agent_name": agent_name}, order="opened_at.desc", limit=limit)
+            rows = self._supabase.select(
+                BETS_TABLE, where={"agent_name": agent_name}, order="opened_at.desc", limit=limit
+            )
             return [dict(row) for row in rows]
         with self._connect() as conn:
             rows = conn.execute(
@@ -347,7 +404,9 @@ class AgentArenaSimulation:
 
     def market_bets(self, market_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
         if self._use_supabase:
-            rows = self._supabase.select(BETS_TABLE, where={"market_id": market_id}, order="opened_at.desc", limit=limit)
+            rows = self._supabase.select(
+                BETS_TABLE, where={"market_id": market_id}, order="opened_at.desc", limit=limit
+            )
             return [dict(row) for row in rows]
         with self._connect() as conn:
             rows = conn.execute(
@@ -367,7 +426,9 @@ class AgentArenaSimulation:
         if self._use_supabase:
             return [dict(row) for row in self._supabase.select(TICKER_TABLE, order="id.desc", limit=limit)]
         with self._connect() as conn:
-            rows = conn.execute("SELECT event_type, message, created_at FROM ticker_events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+            rows = conn.execute(
+                "SELECT event_type, message, created_at FROM ticker_events ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [dict(row) for row in rows]
 
     @staticmethod
@@ -381,9 +442,16 @@ class AgentArenaSimulation:
         if self._use_supabase:
             existing = self._supabase.select_one(KEYS_TABLE, where={"agent_name": agent_name})
             if existing is None:
-                self._supabase.insert(KEYS_TABLE, {"agent_name": agent_name, "key_hash": self._hash_key(raw_key), "created_at": now})
+                self._supabase.insert(
+                    KEYS_TABLE,
+                    {"agent_name": agent_name, "key_hash": self._hash_key(raw_key), "created_at": now},
+                )
             else:
-                self._supabase.update(KEYS_TABLE, {"key_hash": self._hash_key(raw_key), "created_at": now}, where={"agent_name": agent_name})
+                self._supabase.update(
+                    KEYS_TABLE,
+                    {"key_hash": self._hash_key(raw_key), "created_at": now},
+                    where={"agent_name": agent_name},
+                )
             return raw_key
         with self._connect() as conn:
             conn.execute(
@@ -420,7 +488,9 @@ class AgentArenaSimulation:
             }
         return json.loads(self.state_path.read_text(encoding="utf-8"))
 
-    def submit_external_decision(self, *, agent_name: str, market_id: str, side: str, stake: float) -> dict[str, Any]:
+    def submit_external_decision(
+        self, *, agent_name: str, market_id: str, side: str, stake: float
+    ) -> dict[str, Any]:
         state = self.load_state()
         markets = state.get("markets", [])
         recommendation = next((m for m in markets if str(m.get("market_id")) == str(market_id)), None)

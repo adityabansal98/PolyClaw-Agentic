@@ -47,7 +47,8 @@ class ClobClientWrapper:
             except Exception:
                 logger.warning(
                     "Batch orderbook fetch failed for chunk %d-%d, falling back to individual",
-                    i, i + len(chunk),
+                    i,
+                    i + len(chunk),
                     exc_info=True,
                 )
                 for tid in chunk:

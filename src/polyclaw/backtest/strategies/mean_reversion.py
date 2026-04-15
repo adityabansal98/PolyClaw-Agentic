@@ -21,12 +21,18 @@ class MeanReversionStrategy(Strategy):
 
         # Buy when price drops far below anchor
         if distance_from_anchor < -self.entry_deviation and ctx.cash >= self.trade_size:
-            return Signal(side=Side.BUY, size=self.trade_size,
-                          reason=f"Price {ctx.price:.4f} below anchor {self.anchor} by {abs(distance_from_anchor):.4f}")
+            return Signal(
+                side=Side.BUY,
+                size=self.trade_size,
+                reason=f"Price {ctx.price:.4f} below anchor {self.anchor} by {abs(distance_from_anchor):.4f}",
+            )
 
         # Sell when price reverts close to anchor
         if ctx.position_shares > 0 and abs(distance_from_anchor) < self.exit_deviation:
-            return Signal(side=Side.SELL, size=ctx.position_shares,
-                          reason=f"Price {ctx.price:.4f} reverted near anchor {self.anchor}")
+            return Signal(
+                side=Side.SELL,
+                size=ctx.position_shares,
+                reason=f"Price {ctx.price:.4f} reverted near anchor {self.anchor}",
+            )
 
         return None

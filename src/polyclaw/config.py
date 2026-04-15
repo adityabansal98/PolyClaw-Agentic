@@ -67,8 +67,7 @@ class Settings(BaseSettings):
             )
         if not self.supabase_url or not self.supabase_key:
             raise ProductionConfigError(
-                "POLYCLAW_ENV=production requires POLYCLAW_SUPABASE_URL and "
-                "POLYCLAW_SUPABASE_KEY to be set."
+                "POLYCLAW_ENV=production requires POLYCLAW_SUPABASE_URL and POLYCLAW_SUPABASE_KEY to be set."
             )
 
 

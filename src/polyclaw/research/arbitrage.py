@@ -6,12 +6,11 @@ guaranteeing risk-free profit regardless of outcome.
 Polymarket structure: YES + NO always resolves to exactly $1.00.
 If best_ask(YES) + best_ask(NO) < $1.00, the difference is free money.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-
-from .features import clamp
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +27,8 @@ class ArbitrageOpportunity:
     yes_ask: float
     no_ask: float
     combined_cost: float
-    gross_profit: float    # 1.0 - combined_cost
-    net_profit: float      # after fees and gas
+    gross_profit: float  # 1.0 - combined_cost
+    net_profit: float  # after fees and gas
     net_profit_pct: float  # as percentage of cost
     category: str = ""
 
@@ -71,17 +70,19 @@ def scan_for_arbitrage(
 
             net_pct = (net_profit / combined) * 100
 
-            opportunities.append(ArbitrageOpportunity(
-                market_id=str(m.get("id", m.get("market_id", ""))),
-                question=str(m.get("question", "")),
-                yes_ask=yes_ask,
-                no_ask=no_ask,
-                combined_cost=round(combined, 4),
-                gross_profit=round(gross_profit, 4),
-                net_profit=round(net_profit, 4),
-                net_profit_pct=round(net_pct, 2),
-                category=str(m.get("category", "")),
-            ))
+            opportunities.append(
+                ArbitrageOpportunity(
+                    market_id=str(m.get("id", m.get("market_id", ""))),
+                    question=str(m.get("question", "")),
+                    yes_ask=yes_ask,
+                    no_ask=no_ask,
+                    combined_cost=round(combined, 4),
+                    gross_profit=round(gross_profit, 4),
+                    net_profit=round(net_profit, 4),
+                    net_profit_pct=round(net_pct, 2),
+                    category=str(m.get("category", "")),
+                )
+            )
         except Exception:
             continue
 

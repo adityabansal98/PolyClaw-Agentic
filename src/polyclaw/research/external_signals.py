@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -59,7 +58,9 @@ class ExternalSignalEngine:
                     confidence=clamp(_as_float(row.get("confidence")) or 0.7, 0.05, 1.0),
                     weight=max(0.01, _as_float(row.get("weight")) or 1.0),
                     market_ref=(str(row.get("market_ref")).strip() if row.get("market_ref") else None),
-                    match_terms=[str(x).strip().lower() for x in (row.get("match_terms") or []) if str(x).strip()],
+                    match_terms=[
+                        str(x).strip().lower() for x in (row.get("match_terms") or []) if str(x).strip()
+                    ],
                     timestamp=_parse_ts(row.get("timestamp")),
                 )
             )

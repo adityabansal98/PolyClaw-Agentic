@@ -49,9 +49,13 @@ class Agent:
         if score < self.profile.min_score:
             return BetDecision(False, 0.0, f"score {score:.3f} below {self.profile.min_score:.3f}")
         if confidence < self.profile.min_confidence:
-            return BetDecision(False, 0.0, f"confidence {confidence:.3f} below {self.profile.min_confidence:.3f}")
+            return BetDecision(
+                False, 0.0, f"confidence {confidence:.3f} below {self.profile.min_confidence:.3f}"
+            )
         if expected_value < self.profile.min_expected_value:
-            return BetDecision(False, 0.0, f"ev {expected_value:.3f} below {self.profile.min_expected_value:.3f}")
+            return BetDecision(
+                False, 0.0, f"ev {expected_value:.3f} below {self.profile.min_expected_value:.3f}"
+            )
         if balance <= 0:
             return BetDecision(False, 0.0, "no balance")
 

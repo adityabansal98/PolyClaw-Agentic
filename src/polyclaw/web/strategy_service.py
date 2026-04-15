@@ -5,6 +5,7 @@ Runs run_selector.py as a subprocess (to avoid polyclaw package name conflict
 between the root legacy module and the installed src/polyclaw package),
 caches results for 60 seconds, and enriches each pick with OpenAI commentary.
 """
+
 import json
 import logging
 import os
@@ -13,7 +14,6 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,18 +35,16 @@ def _run_pipeline():
     """Invoke run_selector.py --live --pretty and parse the JSON output."""
     result = subprocess.run(
         [sys.executable, str(_SELECTOR_SCRIPT), "--live", "--pretty"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         cwd=str(_PROJECT_ROOT),
         timeout=180,
+        check=False,
     )
     # decode bytes to str (Python 3.6 subprocess doesn't have text= parameter)
     stdout = result.stdout.decode("utf-8", errors="replace")
     stderr = result.stderr.decode("utf-8", errors="replace")
     if result.returncode != 0:
-        raise RuntimeError(
-            "Selector script exited {}: {}".format(result.returncode, stderr[-600:])
-        )
+        raise RuntimeError(f"Selector script exited {result.returncode}: {stderr[-600:]}")
 
     raw = json.loads(stdout)  # type: Dict[str, List[Dict]]
 
@@ -73,6 +71,7 @@ def _top_per_category(picks, n=5):
     # type: (List[Dict[str, Any]], int) -> List[Dict[str, Any]]
     """Return top *n* picks per category, ordered by score within each group."""
     from collections import defaultdict
+
     by_cat = defaultdict(list)  # type: dict
     for p in picks:
         by_cat[p.get("category", "Unknown")].append(p)
@@ -90,11 +89,13 @@ def _openai_complete(api_key, prompt):
     import json as _json
     import urllib.request
 
-    payload = _json.dumps({
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 80,
-    }).encode()
+    payload = _json.dumps(
+        {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 80,
+        }
+    ).encode()
 
     req = urllib.request.Request(
         "https://api.openai.com/v1/chat/completions",
@@ -137,7 +138,7 @@ def _url_from_slug(slug):
     # type: (Optional[str]) -> Optional[str]
     if not slug:
         return None
-    return "https://polymarket.com/event/{}".format(slug)
+    return f"https://polymarket.com/event/{slug}"
 
 
 def _load_from_precomputed():
@@ -163,23 +164,25 @@ def _load_from_precomputed():
     all_picks = []  # type: List[Dict[str, Any]]
     for category, picks in raw.items():
         for pick in picks:
-            all_picks.append({
-                **pick,
-                "category": category,
-                "market_id": pick.get("market_id", pick.get("id", "")),
-                "market_url": pick.get("market_url") or _url_from_slug(pick.get("event_group")),
-                "side": pick.get("side", "YES"),
-                "score": pick.get("score", 0),
-                "edge_pct": round(pick.get("selected_edge", 0) * 100, 2),
-                "confidence": pick.get("confidence", 0),
-                "confidence_pct": round(pick.get("confidence", 0) * 100, 1),
-                "score_pct": round(pick.get("score", 0) * 100, 1),
-                "liquidity_score": pick.get("liquidity_score", 0),
-                "spread_bps": pick.get("spread_bps", 0),
-                "hours_to_resolution": pick.get("hours_to_resolution", None),
-                "rationale_tags": pick.get("rationale_tags", []),
-                "ai_commentary": None,
-            })
+            all_picks.append(
+                {
+                    **pick,
+                    "category": category,
+                    "market_id": pick.get("market_id", pick.get("id", "")),
+                    "market_url": pick.get("market_url") or _url_from_slug(pick.get("event_group")),
+                    "side": pick.get("side", "YES"),
+                    "score": pick.get("score", 0),
+                    "edge_pct": round(pick.get("selected_edge", 0) * 100, 2),
+                    "confidence": pick.get("confidence", 0),
+                    "confidence_pct": round(pick.get("confidence", 0) * 100, 1),
+                    "score_pct": round(pick.get("score", 0) * 100, 1),
+                    "liquidity_score": pick.get("liquidity_score", 0),
+                    "spread_bps": pick.get("spread_bps", 0),
+                    "hours_to_resolution": pick.get("hours_to_resolution", None),
+                    "rationale_tags": pick.get("rationale_tags", []),
+                    "ai_commentary": None,
+                }
+            )
 
     return _top_per_category(all_picks, n=5)
 

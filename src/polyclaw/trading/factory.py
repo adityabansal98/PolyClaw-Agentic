@@ -12,12 +12,14 @@ def create_trader(mode: str | None = None) -> TraderInterface:
 
     if mode == "paper":
         from polyclaw.trading.paper_trader import PaperTrader
+
         return PaperTrader(
             db_path=settings.paper_db_path,
             starting_balance=settings.paper_starting_balance,
         )
     elif mode == "live":
         from polyclaw.trading.live_trader import LiveTrader
+
         trader = LiveTrader()
         if settings.api_key and settings.api_secret and settings.api_passphrase:
             trader.set_creds(settings.api_key, settings.api_secret, settings.api_passphrase)

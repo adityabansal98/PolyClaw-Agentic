@@ -1,5 +1,3 @@
-import math
-
 from polyclaw.backtest.strategy import Signal, Strategy, TickContext
 from polyclaw.trading.models import Side
 
@@ -15,18 +13,18 @@ class KellySizedStrategy(Strategy):
     name = "kelly_sized"
 
     def __init__(self):
-        self.kelly_aggression: float = 0.25   # quarter-Kelly
-        self.max_bet_pct: float = 0.05        # 5% max of bankroll
+        self.kelly_aggression: float = 0.25  # quarter-Kelly
+        self.max_bet_pct: float = 0.05  # 5% max of bankroll
         self.min_edge_to_trade: float = 0.02  # 2% minimum edge
         self.momentum_window: int = 10
-        self.entry_below: float = 0.45        # only buy when price < this
+        self.entry_below: float = 0.45  # only buy when price < this
 
     def on_tick(self, ctx: TickContext) -> Signal | None:
         if len(ctx.prices) < self.momentum_window + 1:
             return None
 
         # Estimate "model probability" from momentum
-        recent = ctx.prices[-self.momentum_window:]
+        recent = ctx.prices[-self.momentum_window :]
         ma = sum(recent) / len(recent)
         momentum = ctx.price - ma
 
@@ -35,13 +33,15 @@ class KellySizedStrategy(Strategy):
 
         # Determine side and entry price
         if ctx.price < self.entry_below and p_model > ctx.price:
-            side = Side.BUY
             entry_price = ctx.price
             p = p_model
         elif ctx.position_shares > 0 and p_model < ctx.avg_entry_price:
             # Exit losing position
-            return Signal(side=Side.SELL, size=ctx.position_shares,
-                          reason=f"Kelly exit: model={p_model:.3f} < entry={ctx.avg_entry_price:.3f}")
+            return Signal(
+                side=Side.SELL,
+                size=ctx.position_shares,
+                reason=f"Kelly exit: model={p_model:.3f} < entry={ctx.avg_entry_price:.3f}",
+            )
         else:
             return None
 
@@ -70,5 +70,5 @@ class KellySizedStrategy(Strategy):
         return Signal(
             side=Side.BUY,
             size=stake_usd,
-            reason=f"Kelly {kelly_raw*100:.1f}% → {stake_pct*100:.2f}% (${stake_usd:.0f}), edge={edge*100:.1f}%",
+            reason=f"Kelly {kelly_raw * 100:.1f}% → {stake_pct * 100:.2f}% (${stake_usd:.0f}), edge={edge * 100:.1f}%",
         )

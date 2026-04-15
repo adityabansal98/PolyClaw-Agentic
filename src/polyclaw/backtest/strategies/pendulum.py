@@ -13,11 +13,11 @@ class PendulumStrategy(Strategy):
     name = "pendulum"
 
     def __init__(self):
-        self.entry_low: float = 0.35        # only trade markets in this range
+        self.entry_low: float = 0.35  # only trade markets in this range
         self.entry_high: float = 0.65
-        self.dip_pct: float = 0.05          # buy when price drops 5% from recent high
-        self.pop_pct: float = 0.05          # sell when price rises 5% from recent low
-        self.lookback: int = 10             # ticks to compute recent high/low
+        self.dip_pct: float = 0.05  # buy when price drops 5% from recent high
+        self.pop_pct: float = 0.05  # sell when price rises 5% from recent low
+        self.lookback: int = 10  # ticks to compute recent high/low
         self.trade_size: float = 150.0
 
     def on_tick(self, ctx: TickContext) -> Signal | None:
@@ -25,14 +25,15 @@ class PendulumStrategy(Strategy):
         if ctx.price < self.entry_low or ctx.price > self.entry_high:
             # If we have a position outside the zone, close it
             if ctx.position_shares > 0:
-                return Signal(side=Side.SELL, size=ctx.position_shares,
-                              reason=f"Exit zone: price={ctx.price:.3f}")
+                return Signal(
+                    side=Side.SELL, size=ctx.position_shares, reason=f"Exit zone: price={ctx.price:.3f}"
+                )
             return None
 
         if len(ctx.prices) < self.lookback + 1:
             return None
 
-        recent = ctx.prices[-self.lookback:]
+        recent = ctx.prices[-self.lookback :]
         recent_high = max(recent)
         recent_low = min(recent)
 
@@ -43,7 +44,7 @@ class PendulumStrategy(Strategy):
                 return Signal(
                     side=Side.BUY,
                     size=self.trade_size,
-                    reason=f"Dip buy: dropped {drop_pct*100:.1f}% from {recent_high:.3f}",
+                    reason=f"Dip buy: dropped {drop_pct * 100:.1f}% from {recent_high:.3f}",
                 )
 
         # Sell on pop: price rose significantly from recent low
@@ -53,7 +54,7 @@ class PendulumStrategy(Strategy):
                 return Signal(
                     side=Side.SELL,
                     size=ctx.position_shares,
-                    reason=f"Pop sell: rose {rise_pct*100:.1f}% from {recent_low:.3f}",
+                    reason=f"Pop sell: rose {rise_pct * 100:.1f}% from {recent_low:.3f}",
                 )
 
         return None

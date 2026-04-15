@@ -125,7 +125,9 @@ class PolymarketPublicClient:
             return payload["data"]
         return payload if isinstance(payload, list) else []
 
-    def attach_event_slugs(self, rows: list[dict], *, closed: bool = False, scan_limit: int = 8000) -> list[dict]:
+    def attach_event_slugs(
+        self, rows: list[dict], *, closed: bool = False, scan_limit: int = 8000
+    ) -> list[dict]:
         target_ids = {str(row.get("id")) for row in rows if row.get("id") is not None}
         if not target_ids:
             return rows
@@ -221,10 +223,7 @@ class PolymarketPublicClient:
         )
 
         end_time = self._parse_datetime(
-            raw.get("endDate")
-            or raw.get("end_time")
-            or raw.get("resolutionDate")
-            or raw.get("resolveBy")
+            raw.get("endDate") or raw.get("end_time") or raw.get("resolutionDate") or raw.get("resolveBy")
         )
 
         prices = raw.get("prices") or {}
@@ -241,10 +240,7 @@ class PolymarketPublicClient:
             yes_from_outcomes = outcome_prices[0]
 
         last_price_yes = self._as_float(
-            raw.get("lastPriceYes")
-            or raw.get("last_price_yes")
-            or prices.get("yes")
-            or yes_from_outcomes
+            raw.get("lastPriceYes") or raw.get("last_price_yes") or prices.get("yes") or yes_from_outcomes
         )
 
         metadata = dict(raw)
@@ -286,8 +282,12 @@ class PolymarketPublicClient:
         if not isinstance(raw, dict):
             return OrderBookSnapshot()
         return OrderBookSnapshot(
-            bid_yes=PolymarketPublicClient._as_float(raw.get("bid_yes") or raw.get("bestBidYes") or raw.get("bid")),
-            ask_yes=PolymarketPublicClient._as_float(raw.get("ask_yes") or raw.get("bestAskYes") or raw.get("ask")),
+            bid_yes=PolymarketPublicClient._as_float(
+                raw.get("bid_yes") or raw.get("bestBidYes") or raw.get("bid")
+            ),
+            ask_yes=PolymarketPublicClient._as_float(
+                raw.get("ask_yes") or raw.get("bestAskYes") or raw.get("ask")
+            ),
             bid_no=PolymarketPublicClient._as_float(raw.get("bid_no") or raw.get("bestBidNo")),
             ask_no=PolymarketPublicClient._as_float(raw.get("ask_no") or raw.get("bestAskNo")),
             depth_yes=PolymarketPublicClient._as_float(raw.get("depth_yes") or raw.get("depthYes") or 0.0),

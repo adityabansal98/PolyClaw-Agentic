@@ -1,6 +1,5 @@
 import argparse
 import logging
-import sys
 
 from polyclaw.ingestion.scheduler import IngestionScheduler
 
@@ -53,7 +52,7 @@ def main():
     history_parser = sub.add_parser("history", help="Show paper trade history")
     history_parser.add_argument("--mode", choices=["paper", "live"], default=None)
 
-    reset_parser = sub.add_parser("paper-reset", help="Reset paper trading to starting balance")
+    sub.add_parser("paper-reset", help="Reset paper trading to starting balance")
 
     args = parser.parse_args()
     setup_logging(args.verbose)
@@ -61,6 +60,7 @@ def main():
     # Web UI
     if args.command == "web":
         from polyclaw.web.app import app as flask_app
+
         print(f"Starting PolyClaw web UI at http://{args.host}:{args.port}")
         flask_app.run(host=args.host, port=args.port, debug=False)
         return
@@ -102,7 +102,7 @@ def main():
             size=args.size,
         )
         result = trader.place_order(order)
-        print(f"\nOrder Result:")
+        print("\nOrder Result:")
         print(f"  ID:     {result.order_id}")
         print(f"  Status: {result.status.value}")
         if result.filled_price:
@@ -120,9 +120,9 @@ def main():
         trader = create_trader(mode=args.mode)
         portfolio = trader.get_portfolio()
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f" PORTFOLIO ({'PAPER' if (args.mode or 'paper') == 'paper' else 'LIVE'})")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f" Cash Balance:      ${portfolio.cash_balance:,.2f}")
         print(f" Position Value:    ${portfolio.total_position_value:,.2f}")
         print(f" Total Equity:      ${portfolio.total_equity:,.2f}")
@@ -130,15 +130,17 @@ def main():
         print(f" Unrealized PnL:    ${portfolio.total_unrealized_pnl:,.2f}")
 
         if portfolio.positions:
-            print(f"\n Positions:")
+            print("\n Positions:")
             print(f" {'Outcome':<12} {'Shares':>10} {'Entry':>8} {'Current':>8} {'PnL':>10}  Market")
-            print(f" {'-'*12} {'-'*10} {'-'*8} {'-'*8} {'-'*10}  {'-'*30}")
+            print(f" {'-' * 12} {'-' * 10} {'-' * 8} {'-' * 8} {'-' * 10}  {'-' * 30}")
             for p in portfolio.positions:
                 curr = f"${p.current_price:.4f}" if p.current_price else "N/A"
                 pnl = f"${p.unrealized_pnl:+.2f}" if p.unrealized_pnl is not None else "N/A"
-                print(f" {p.outcome:<12} {p.shares:>10.2f} ${p.avg_entry_price:>7.4f} {curr:>8} {pnl:>10}  {p.market_question[:30]}")
+                print(
+                    f" {p.outcome:<12} {p.shares:>10.2f} ${p.avg_entry_price:>7.4f} {curr:>8} {pnl:>10}  {p.market_question[:30]}"
+                )
         else:
-            print(f"\n No open positions.")
+            print("\n No open positions.")
         print()
 
     elif args.command == "history":
@@ -155,20 +157,23 @@ def main():
             print("\nNo trades yet.")
             return
 
-        print(f"\n{'='*80}")
-        print(f" TRADE HISTORY (last 20)")
-        print(f"{'='*80}")
+        print(f"\n{'=' * 80}")
+        print(" TRADE HISTORY (last 20)")
+        print(f"{'=' * 80}")
         for t in trades[:20]:
             from datetime import datetime
+
             ts = datetime.fromtimestamp(t["timestamp"] / 1000).strftime("%Y-%m-%d %H:%M")
-            print(f" [{ts}] {t['side']:4s} {t['outcome']:3s} "
-                  f"{t['filled_size']:>10.2f} shares @ ${t['filled_price']:.4f} "
-                  f"(${t['total_cost']:.2f}) — {t['market_question'][:35]}")
+            print(
+                f" [{ts}] {t['side']:4s} {t['outcome']:3s} "
+                f"{t['filled_size']:>10.2f} shares @ ${t['filled_price']:.4f} "
+                f"(${t['total_cost']:.2f}) — {t['market_question'][:35]}"
+            )
         print()
 
     elif args.command == "paper-reset":
-        from polyclaw.trading.paper_trader import PaperTrader
         from polyclaw.config import settings
+        from polyclaw.trading.paper_trader import PaperTrader
 
         trader = PaperTrader(
             db_path=settings.paper_db_path,

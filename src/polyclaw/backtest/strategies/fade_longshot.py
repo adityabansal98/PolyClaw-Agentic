@@ -22,11 +22,11 @@ class FadeLongshotStrategy(Strategy):
     name = "fade_longshot"
 
     def __init__(self):
-        self.max_yes_price: float = 0.15    # only target YES < 15%
-        self.calibration_k: float = 1.8     # logistic steepness
-        self.min_edge_pct: float = 0.02     # 2% minimum calibrated edge
-        self.trade_size: float = 200.0      # USDC per trade (buys NO shares)
-        self.exit_at_no_price: float = 0.99 # exit when NO > 99¢
+        self.max_yes_price: float = 0.15  # only target YES < 15%
+        self.calibration_k: float = 1.8  # logistic steepness
+        self.min_edge_pct: float = 0.02  # 2% minimum calibrated edge
+        self.trade_size: float = 200.0  # USDC per trade (buys NO shares)
+        self.exit_at_no_price: float = 0.99  # exit when NO > 99¢
 
     def on_tick(self, ctx: TickContext) -> Signal | None:
         # This strategy operates on YES token prices
@@ -57,7 +57,7 @@ class FadeLongshotStrategy(Strategy):
             return Signal(
                 side=Side.BUY,
                 size=self.trade_size,
-                reason=f"Longshot value: mkt={ctx.price*100:.1f}% cal={p_calibrated*100:.1f}% edge={edge*100:.1f}%",
+                reason=f"Longshot value: mkt={ctx.price * 100:.1f}% cal={p_calibrated * 100:.1f}% edge={edge * 100:.1f}%",
             )
 
         # Sell existing position if price rose enough
@@ -65,7 +65,7 @@ class FadeLongshotStrategy(Strategy):
             return Signal(
                 side=Side.SELL,
                 size=ctx.position_shares,
-                reason=f"Longshot profit take: {ctx.price*100:.1f}% (entry {ctx.avg_entry_price*100:.1f}%)",
+                reason=f"Longshot profit take: {ctx.price * 100:.1f}% (entry {ctx.avg_entry_price * 100:.1f}%)",
             )
 
         return None

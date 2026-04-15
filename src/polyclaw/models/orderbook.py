@@ -21,14 +21,8 @@ class OrderBook(BaseModel):
     @classmethod
     def from_clob_summary(cls, summary) -> "OrderBook":
         """Build from py_clob_client.clob_types.OrderBookSummary."""
-        bids = [
-            OrderLevel(price=float(o.price), size=float(o.size))
-            for o in (summary.bids or [])
-        ]
-        asks = [
-            OrderLevel(price=float(o.price), size=float(o.size))
-            for o in (summary.asks or [])
-        ]
+        bids = [OrderLevel(price=float(o.price), size=float(o.size)) for o in (summary.bids or [])]
+        asks = [OrderLevel(price=float(o.price), size=float(o.size)) for o in (summary.asks or [])]
         best_bid = max((b.price for b in bids), default=None)
         best_ask = min((a.price for a in asks), default=None)
         midpoint = (best_bid + best_ask) / 2 if best_bid and best_ask else None

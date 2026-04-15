@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -67,15 +67,13 @@ class ScoredMarket:
     score: float
     rationale_tags: list[str]
     # Kelly position sizing (Phase 1)
-    kelly_fraction: float = 0.0         # raw Kelly fraction (before aggression scaling)
+    kelly_fraction: float = 0.0  # raw Kelly fraction (before aggression scaling)
     recommended_stake_pct: float = 0.0  # after aggression + caps
     recommended_stake_usd: float = 0.0  # dollar amount (requires bankroll context)
     strategy_type: str = "directional"  # "directional", "premium_sell", "arbitrage"
-    p_calibrated: float | None = None   # bias-adjusted market probability
+    p_calibrated: float | None = None  # bias-adjusted market probability
 
     def as_output_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["market"]["end_time"] = (
-            self.market.end_time.isoformat() if self.market.end_time else None
-        )
+        payload["market"]["end_time"] = self.market.end_time.isoformat() if self.market.end_time else None
         return payload

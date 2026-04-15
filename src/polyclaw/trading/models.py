@@ -1,4 +1,5 @@
 from enum import Enum
+
 from pydantic import BaseModel
 
 
@@ -22,6 +23,7 @@ class OrderStatus(str, Enum):
 
 class TradeOrder(BaseModel):
     """A trade order submitted to either live or paper engine."""
+
     token_id: str
     market_id: str  # condition_id
     market_question: str = ""
@@ -34,6 +36,7 @@ class TradeOrder(BaseModel):
 
 class OrderResult(BaseModel):
     """Result after submitting an order."""
+
     order_id: str
     status: OrderStatus
     filled_price: float | None = None
@@ -44,6 +47,7 @@ class OrderResult(BaseModel):
 
 class Position(BaseModel):
     """A current holding in a market outcome."""
+
     token_id: str
     market_id: str
     market_question: str = ""
@@ -56,6 +60,7 @@ class Position(BaseModel):
 
 class PortfolioSummary(BaseModel):
     """Overall portfolio state."""
+
     cash_balance: float
     positions: list[Position]
     total_position_value: float

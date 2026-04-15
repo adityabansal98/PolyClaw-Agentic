@@ -1,4 +1,3 @@
-import json
 import logging
 import sqlite3
 import time
@@ -87,6 +86,7 @@ class PaperTrader(TraderInterface):
         backend: str | None = None,
     ):
         from polyclaw.config import settings
+
         settings.enforce_production_guard()
         self._backend = backend or settings.db_backend
         self._sb = None  # Supabase client (lazy)
@@ -94,6 +94,7 @@ class PaperTrader(TraderInterface):
 
         if self._backend == "supabase":
             from polyclaw.storage.supabase_db import SupabaseDB
+
             self._sb = SupabaseDB(url=settings.supabase_url, key=settings.supabase_key)
             # Tables + initial data already created via migration
         else:
@@ -107,9 +108,7 @@ class PaperTrader(TraderInterface):
             except sqlite3.OperationalError:
                 pass
             # Initialize balance if first run
-            row = self._conn.execute(
-                "SELECT value FROM paper_config WHERE key = 'cash_balance'"
-            ).fetchone()
+            row = self._conn.execute("SELECT value FROM paper_config WHERE key = 'cash_balance'").fetchone()
             if row is None:
                 self._conn.execute(
                     "INSERT INTO paper_config (key, value) VALUES ('cash_balance', ?)",
@@ -132,9 +131,7 @@ class PaperTrader(TraderInterface):
             row = self._sb.select_one("paper_config", where={"key": "cash_balance"})
             return float(row["value"]) if row else 0.0
         else:
-            row = self._conn.execute(
-                "SELECT value FROM paper_config WHERE key = 'cash_balance'"
-            ).fetchone()
+            row = self._conn.execute("SELECT value FROM paper_config WHERE key = 'cash_balance'").fetchone()
             return float(row["value"])
 
     def _set_cash(self, amount: float):
@@ -195,10 +192,22 @@ class PaperTrader(TraderInterface):
                     order_type, requested_price, filled_price, filled_size,
                     total_cost, fee, status, timestamp)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (trade_id, order.token_id, order.market_id, order.market_question,
-                 order.outcome, order.side.value, order.order_type.value,
-                 order.price, avg_price, total_shares, total_cost, fee,
-                 status.value, now),
+                (
+                    trade_id,
+                    order.token_id,
+                    order.market_id,
+                    order.market_question,
+                    order.outcome,
+                    order.side.value,
+                    order.order_type.value,
+                    order.price,
+                    avg_price,
+                    total_shares,
+                    total_cost,
+                    fee,
+                    status.value,
+                    now,
+                ),
             )
             self._conn.commit()
 
@@ -217,7 +226,8 @@ class PaperTrader(TraderInterface):
             ob = self.clob.get_orderbook(order.token_id)
         except Exception as e:
             return OrderResult(
-                order_id=trade_id, status=OrderStatus.REJECTED,
+                order_id=trade_id,
+                status=OrderStatus.REJECTED,
                 message=f"Failed to fetch orderbook: {e}",
             )
 
@@ -228,7 +238,8 @@ class PaperTrader(TraderInterface):
 
         if not levels:
             return OrderResult(
-                order_id=trade_id, status=OrderStatus.REJECTED,
+                order_id=trade_id,
+                status=OrderStatus.REJECTED,
                 message=f"No {'asks' if order.side == Side.BUY else 'bids'} in orderbook",
             )
 
@@ -238,7 +249,8 @@ class PaperTrader(TraderInterface):
             held = self._get_held_shares(order.token_id)
             if held <= 0:
                 return OrderResult(
-                    order_id=trade_id, status=OrderStatus.REJECTED,
+                    order_id=trade_id,
+                    status=OrderStatus.REJECTED,
                     message="No shares held to sell",
                 )
             effective_size = min(order.size, held)
@@ -271,7 +283,8 @@ class PaperTrader(TraderInterface):
 
         if total_shares == 0:
             return OrderResult(
-                order_id=trade_id, status=OrderStatus.REJECTED,
+                order_id=trade_id,
+                status=OrderStatus.REJECTED,
                 message="Insufficient liquidity in orderbook",
             )
 
@@ -289,13 +302,22 @@ class PaperTrader(TraderInterface):
         fee_str = f" (fee ${fee:.2f})" if fee > 0 else ""
         logger.info(
             "PAPER %s %s: %.2f shares @ avg $%.4f (cost $%.2f%s) | %s [%s]",
-            order.side.value, order.outcome, total_shares, avg_price,
-            total_cost, fee_str, order.market_question[:40], trade_id,
+            order.side.value,
+            order.outcome,
+            total_shares,
+            avg_price,
+            total_cost,
+            fee_str,
+            order.market_question[:40],
+            trade_id,
         )
 
         return OrderResult(
-            order_id=trade_id, status=OrderStatus.FILLED,
-            filled_price=avg_price, filled_size=total_shares, total_cost=total_cost,
+            order_id=trade_id,
+            status=OrderStatus.FILLED,
+            filled_price=avg_price,
+            filled_size=total_shares,
+            total_cost=total_cost,
         )
 
     def _execute_limit_order(self, order: TradeOrder) -> OrderResult:
@@ -303,7 +325,8 @@ class PaperTrader(TraderInterface):
 
         if order.price is None:
             return OrderResult(
-                order_id=trade_id, status=OrderStatus.REJECTED,
+                order_id=trade_id,
+                status=OrderStatus.REJECTED,
                 message="Limit orders require a price.",
             )
 
@@ -311,7 +334,8 @@ class PaperTrader(TraderInterface):
             ob = self.clob.get_orderbook(order.token_id)
         except Exception as e:
             return OrderResult(
-                order_id=trade_id, status=OrderStatus.REJECTED,
+                order_id=trade_id,
+                status=OrderStatus.REJECTED,
                 message=f"Failed to fetch orderbook: {e}",
             )
 
@@ -325,11 +349,16 @@ class PaperTrader(TraderInterface):
         if not fillable_levels:
             now = int(time.time() * 1000)
             data = {
-                "id": trade_id, "token_id": order.token_id,
-                "market_id": order.market_id, "market_question": order.market_question,
-                "outcome": order.outcome, "side": order.side.value,
-                "price": order.price, "size": order.size,
-                "filled_size": 0, "timestamp": now,
+                "id": trade_id,
+                "token_id": order.token_id,
+                "market_id": order.market_id,
+                "market_question": order.market_question,
+                "outcome": order.outcome,
+                "side": order.side.value,
+                "price": order.price,
+                "size": order.size,
+                "filled_size": 0,
+                "timestamp": now,
             }
             if self._backend == "supabase":
                 self._sb.insert("paper_open_orders", data)
@@ -339,14 +368,23 @@ class PaperTrader(TraderInterface):
                        (id, token_id, market_id, market_question, outcome,
                         side, price, size, filled_size, timestamp)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-                    (trade_id, order.token_id, order.market_id,
-                     order.market_question, order.outcome,
-                     order.side.value, order.price, order.size, now),
+                    (
+                        trade_id,
+                        order.token_id,
+                        order.market_id,
+                        order.market_question,
+                        order.outcome,
+                        order.side.value,
+                        order.price,
+                        order.size,
+                        now,
+                    ),
                 )
                 self._conn.commit()
 
             return OrderResult(
-                order_id=trade_id, status=OrderStatus.PENDING,
+                order_id=trade_id,
+                status=OrderStatus.PENDING,
                 message="Limit order placed (not yet fillable at current prices)",
             )
 
@@ -355,7 +393,8 @@ class PaperTrader(TraderInterface):
             held = self._get_held_shares(order.token_id)
             if held <= 0:
                 return OrderResult(
-                    order_id=trade_id, status=OrderStatus.REJECTED,
+                    order_id=trade_id,
+                    status=OrderStatus.REJECTED,
                     message="No shares held to sell",
                 )
             effective_size = min(order.size, held)
@@ -382,7 +421,8 @@ class PaperTrader(TraderInterface):
 
         if total_shares == 0:
             return OrderResult(
-                order_id=trade_id, status=OrderStatus.REJECTED,
+                order_id=trade_id,
+                status=OrderStatus.REJECTED,
                 message="Insufficient funds or liquidity",
             )
 
@@ -400,8 +440,11 @@ class PaperTrader(TraderInterface):
         self._insert_trade(trade_id, order, avg_price, total_shares, total_cost, fee, status)
 
         return OrderResult(
-            order_id=trade_id, status=status,
-            filled_price=avg_price, filled_size=total_shares, total_cost=total_cost,
+            order_id=trade_id,
+            status=status,
+            filled_price=avg_price,
+            filled_size=total_shares,
+            total_cost=total_cost,
         )
 
     # ── Position management ─────────────────────────────────────
@@ -421,16 +464,24 @@ class PaperTrader(TraderInterface):
                 old_avg = float(row["avg_entry_price"])
                 new_shares = old_shares + shares
                 new_avg = ((old_shares * old_avg) + (shares * price)) / new_shares if new_shares > 0 else 0
-                self._sb.update("paper_positions",
+                self._sb.update(
+                    "paper_positions",
                     {"shares": new_shares, "avg_entry_price": new_avg},
                     where={"token_id": order.token_id},
                 )
             else:
-                self._sb.insert("paper_positions", {
-                    "token_id": order.token_id, "market_id": order.market_id,
-                    "market_question": order.market_question, "outcome": order.outcome,
-                    "shares": shares, "avg_entry_price": price, "realized_pnl": 0,
-                })
+                self._sb.insert(
+                    "paper_positions",
+                    {
+                        "token_id": order.token_id,
+                        "market_id": order.market_id,
+                        "market_question": order.market_question,
+                        "outcome": order.outcome,
+                        "shares": shares,
+                        "avg_entry_price": price,
+                        "realized_pnl": 0,
+                    },
+                )
         else:  # SELL
             if not row or float(row["shares"]) <= 0:
                 return
@@ -442,12 +493,14 @@ class PaperTrader(TraderInterface):
             old_realized = float(row["realized_pnl"])
 
             if new_shares <= 0.001:
-                self._sb.update("paper_positions",
+                self._sb.update(
+                    "paper_positions",
                     {"shares": 0, "realized_pnl": old_realized + realized},
                     where={"token_id": order.token_id},
                 )
             else:
-                self._sb.update("paper_positions",
+                self._sb.update(
+                    "paper_positions",
                     {"shares": new_shares, "realized_pnl": old_realized + realized},
                     where={"token_id": order.token_id},
                 )
@@ -473,8 +526,7 @@ class PaperTrader(TraderInterface):
                     """INSERT INTO paper_positions
                        (token_id, market_id, market_question, outcome, shares, avg_entry_price, realized_pnl)
                        VALUES (?, ?, ?, ?, ?, ?, 0)""",
-                    (order.token_id, order.market_id, order.market_question,
-                     order.outcome, shares, price),
+                    (order.token_id, order.market_id, order.market_question, order.outcome, shares, price),
                 )
         else:  # SELL
             if not row or row["shares"] <= 0:
@@ -504,9 +556,7 @@ class PaperTrader(TraderInterface):
             count = self._sb.delete("paper_open_orders", where={"id": order_id})
             cancelled = count > 0
         else:
-            result = self._conn.execute(
-                "DELETE FROM paper_open_orders WHERE id = ?", (order_id,)
-            )
+            result = self._conn.execute("DELETE FROM paper_open_orders WHERE id = ?", (order_id,))
             self._conn.commit()
             cancelled = result.rowcount > 0
         if cancelled:
@@ -517,9 +567,7 @@ class PaperTrader(TraderInterface):
         if self._backend == "supabase":
             rows = self._sb.select("paper_positions", where={"shares": "gt.0.001"})
         else:
-            rows = self._conn.execute(
-                "SELECT * FROM paper_positions WHERE shares > 0.001"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM paper_positions WHERE shares > 0.001").fetchall()
 
         positions = []
         for r in rows:
@@ -533,26 +581,25 @@ class PaperTrader(TraderInterface):
             except Exception as e:
                 logger.warning("Failed to fetch price for %s: %s", str(r["token_id"])[:30], e)
 
-            positions.append(Position(
-                token_id=r["token_id"],
-                market_id=r["market_id"],
-                market_question=r["market_question"],
-                outcome=r["outcome"],
-                shares=float(r["shares"]),
-                avg_entry_price=float(r["avg_entry_price"]),
-                current_price=current_price,
-                unrealized_pnl=unrealized,
-            ))
+            positions.append(
+                Position(
+                    token_id=r["token_id"],
+                    market_id=r["market_id"],
+                    market_question=r["market_question"],
+                    outcome=r["outcome"],
+                    shares=float(r["shares"]),
+                    avg_entry_price=float(r["avg_entry_price"]),
+                    current_price=current_price,
+                    unrealized_pnl=unrealized,
+                )
+            )
         return positions
 
     def get_portfolio(self) -> PortfolioSummary:
         cash = self._get_cash()
         positions = self.get_positions()
 
-        total_position_value = sum(
-            p.shares * (p.current_price or p.avg_entry_price)
-            for p in positions
-        )
+        total_position_value = sum(p.shares * (p.current_price or p.avg_entry_price) for p in positions)
         total_unrealized = sum(p.unrealized_pnl or 0 for p in positions)
 
         # Sum realized PnL from ALL positions (including closed ones)
@@ -582,9 +629,7 @@ class PaperTrader(TraderInterface):
             rows = self._sb.select("paper_trades", order="timestamp.desc")
             return [dict(r) for r in rows]
         else:
-            rows = self._conn.execute(
-                "SELECT * FROM paper_trades ORDER BY timestamp DESC"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM paper_trades ORDER BY timestamp DESC").fetchall()
             return [dict(r) for r in rows]
 
     def check_open_orders(self):
@@ -595,10 +640,14 @@ class PaperTrader(TraderInterface):
 
         for r in rows:
             order = TradeOrder(
-                token_id=r["token_id"], market_id=r["market_id"],
-                market_question=r["market_question"], outcome=r["outcome"],
-                side=Side(r["side"]), order_type=TradeOrderType.LIMIT,
-                price=float(r["price"]), size=float(r["size"]) - float(r["filled_size"]),
+                token_id=r["token_id"],
+                market_id=r["market_id"],
+                market_question=r["market_question"],
+                outcome=r["outcome"],
+                side=Side(r["side"]),
+                order_type=TradeOrderType.LIMIT,
+                price=float(r["price"]),
+                size=float(r["size"]) - float(r["filled_size"]),
             )
             result = self._execute_limit_order(order)
             if result.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED):

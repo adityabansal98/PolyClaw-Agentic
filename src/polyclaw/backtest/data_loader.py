@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MarketPriceData:
     """Historical price data for one market token."""
+
     token_id: str
     market_id: str
     market_question: str
@@ -56,7 +57,9 @@ class DataLoader:
             ticks = [(int(point["t"]), float(point["p"])) for point in raw]
             ticks.sort(key=lambda x: x[0])
             self._cache[cache_key] = ticks
-            logger.info("Loaded %d ticks for %s (%s)", len(ticks), market_question[:40] or token_id[:20], outcome)
+            logger.info(
+                "Loaded %d ticks for %s (%s)", len(ticks), market_question[:40] or token_id[:20], outcome
+            )
 
         return MarketPriceData(
             token_id=token_id,

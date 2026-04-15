@@ -17,11 +17,13 @@ class ThresholdStrategy(Strategy):
 
     def on_tick(self, ctx: TickContext) -> Signal | None:
         if ctx.price < self.buy_below and ctx.cash >= self.trade_size:
-            return Signal(side=Side.BUY, size=self.trade_size,
-                          reason=f"Price {ctx.price:.4f} < {self.buy_below}")
+            return Signal(
+                side=Side.BUY, size=self.trade_size, reason=f"Price {ctx.price:.4f} < {self.buy_below}"
+            )
 
         if ctx.price > self.sell_above and ctx.position_shares > 0:
-            return Signal(side=Side.SELL, size=ctx.position_shares,
-                          reason=f"Price {ctx.price:.4f} > {self.sell_above}")
+            return Signal(
+                side=Side.SELL, size=ctx.position_shares, reason=f"Price {ctx.price:.4f} > {self.sell_above}"
+            )
 
         return None

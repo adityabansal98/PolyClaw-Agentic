@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from pathlib import Path
@@ -10,8 +9,14 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 FRONTEND_BUILD_DIR = STATIC_DIR / "app"
 ARENA_STATE_PATH = Path(__file__).resolve().parents[3] / "data" / "agent_arena_state.json"
-ARENA_DB_PATH = Path(os.getenv("POLYCLAW_ARENA_DB_PATH", str(Path(__file__).resolve().parents[3] / "data" / "agent_arena.db")))
-ARENA_AGENT_CONFIG = Path(os.getenv("POLYCLAW_ARENA_AGENT_CONFIG", str(Path(__file__).resolve().parents[3] / "data" / "agent_config.json")))
+ARENA_DB_PATH = Path(
+    os.getenv("POLYCLAW_ARENA_DB_PATH", str(Path(__file__).resolve().parents[3] / "data" / "agent_arena.db"))
+)
+ARENA_AGENT_CONFIG = Path(
+    os.getenv(
+        "POLYCLAW_ARENA_AGENT_CONFIG", str(Path(__file__).resolve().parents[3] / "data" / "agent_config.json")
+    )
+)
 
 app = Flask(__name__, static_folder=str(STATIC_DIR))
 
@@ -292,7 +297,9 @@ def strategy_opportunities():
 
 @app.route("/api/strategy/opportunities/<market_id>/bet", methods=["POST"])
 def strategy_bet(market_id: str):
-    return jsonify({"error": "Manual strategy bets are disabled. AgentArena is agent-only in spectator mode."}), 403
+    return jsonify(
+        {"error": "Manual strategy bets are disabled. AgentArena is agent-only in spectator mode."}
+    ), 403
 
 
 @app.route("/api/backtest/strategies")
@@ -303,12 +310,14 @@ def list_backtest_strategies():
     strategies = []
     for name, cls in sorted(STRATEGY_REGISTRY.items()):
         instance = cls()
-        params = {k: v for k, v in instance.__dict__.items() if not k.startswith('_')}
-        strategies.append({
-            "name": name,
-            "description": cls.__doc__.split('\n')[0] if cls.__doc__ else "",
-            "params": params,
-        })
+        params = {k: v for k, v in instance.__dict__.items() if not k.startswith("_")}
+        strategies.append(
+            {
+                "name": name,
+                "description": cls.__doc__.split("\n")[0] if cls.__doc__ else "",
+                "params": params,
+            }
+        )
     return jsonify(strategies)
 
 
@@ -356,20 +365,22 @@ def run_backtest():
         step = len(curve) // 500
         curve = curve[::step] + [curve[-1]]
 
-    return jsonify({
-        "backtest_id": result.backtest_id,
-        "strategy_name": result.strategy_name,
-        "starting_cash": result.starting_cash,
-        "ending_cash": result.ending_cash,
-        "ending_equity": result.ending_equity,
-        "fee_bps": result.fee_bps,
-        "fidelity": result.fidelity,
-        "markets": result.markets,
-        "strategy_params": result.strategy_params,
-        "metrics": result.metrics.model_dump(),
-        "trades": [t.model_dump() for t in result.trades],
-        "equity_curve": [e.model_dump() for e in curve],
-    })
+    return jsonify(
+        {
+            "backtest_id": result.backtest_id,
+            "strategy_name": result.strategy_name,
+            "starting_cash": result.starting_cash,
+            "ending_cash": result.ending_cash,
+            "ending_equity": result.ending_equity,
+            "fee_bps": result.fee_bps,
+            "fidelity": result.fidelity,
+            "markets": result.markets,
+            "strategy_params": result.strategy_params,
+            "metrics": result.metrics.model_dump(),
+            "trades": [t.model_dump() for t in result.trades],
+            "equity_curve": [e.model_dump() for e in curve],
+        }
+    )
 
 
 @app.route("/api/arena/state")
@@ -396,7 +407,9 @@ def arena_tick():
         payload = request.json or {}
         category = str(payload.get("category") or os.getenv("POLYCLAW_ARENA_CATEGORY", "NBA"))
         limit = int(payload.get("limit") or os.getenv("POLYCLAW_ARENA_LIMIT", "800"))
-        settle_after = int(payload.get("settle_after_seconds") or os.getenv("POLYCLAW_ARENA_SETTLE_AFTER_SECONDS", "3600"))
+        settle_after = int(
+            payload.get("settle_after_seconds") or os.getenv("POLYCLAW_ARENA_SETTLE_AFTER_SECONDS", "3600")
+        )
 
         state = run_single_tick(
             arena=get_arena_simulation(),
@@ -509,7 +522,8 @@ def arena_next_pick():
 
         min_conf = float(request.args.get("min_confidence", 0.55))
         eligible = [
-            m for m in markets
+            m
+            for m in markets
             if float(m.get("confidence", 0.0) or 0.0) >= min_conf
             and float(m.get("expected_value", 0.0) or 0.0) > 0.0
             and m.get("market_id")
@@ -517,7 +531,9 @@ def arena_next_pick():
         ]
 
         if not eligible:
-            return jsonify({"agent": agent_name, "pick": None, "message": "No eligible market for current threshold."})
+            return jsonify(
+                {"agent": agent_name, "pick": None, "message": "No eligible market for current threshold."}
+            )
 
         best = max(
             eligible,

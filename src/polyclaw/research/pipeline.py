@@ -40,9 +40,7 @@ class SelectionPipeline:
     def run(self, raw_markets: list[dict]) -> dict[str, list[ScoredMarket]]:
         normalized = self.client.normalize_markets(raw_markets)
         filtered = [
-            m
-            for m in normalized
-            if m.category in CATEGORIES and self._is_public_tradable_market(m.metadata)
+            m for m in normalized if m.category in CATEGORIES and self._is_public_tradable_market(m.metadata)
         ]
         scored = [self.scorer.score(m) for m in filtered]
         if self.require_external_signal:
@@ -57,7 +55,9 @@ class SelectionPipeline:
         payload = json.loads(Path(input_path).read_text(encoding="utf-8"))
         rows = payload["markets"] if isinstance(payload, dict) and "markets" in payload else payload
         if not isinstance(rows, list):
-            raise ValueError("Input JSON must be a list of market objects or an object with a 'markets' list.")
+            raise ValueError(
+                "Input JSON must be a list of market objects or an object with a 'markets' list."
+            )
         return self.run(rows)
 
     @staticmethod
@@ -74,7 +74,11 @@ class SelectionPipeline:
                     "confidence": round(p.confidence, 4),
                     "p_model_yes": round(p.p_model_yes, 4),
                     "p_market_yes": round(p.p_market_yes, 4),
-                    "p_external_yes": (round(p.external_probability_yes, 4) if p.external_probability_yes is not None else None),
+                    "p_external_yes": (
+                        round(p.external_probability_yes, 4)
+                        if p.external_probability_yes is not None
+                        else None
+                    ),
                     "external_confidence": round(p.external_confidence, 4),
                     "external_sources": p.external_sources,
                     "selected_edge": round(p.selected_edge, 4),
@@ -123,12 +127,7 @@ class SelectionPipeline:
         return round(hours, 2)
 
     def _enrich_selected_event_slugs(self, selected: dict[str, list[ScoredMarket]]) -> None:
-        market_ids = {
-            p.market.market_id
-            for picks in selected.values()
-            for p in picks
-            if p.market.market_id
-        }
+        market_ids = {p.market.market_id for picks in selected.values() for p in picks if p.market.market_id}
         if not market_ids:
             return
         # Use a deep scan for selected picks to avoid dead URL fallbacks.

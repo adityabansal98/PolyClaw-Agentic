@@ -85,7 +85,10 @@ class MarketScorer:
 
         # Kelly position sizing
         kelly_fraction, stake_pct, stake_usd = self._kelly_sizing(
-            p_model, selected_side, ask_yes, no_price,
+            p_model,
+            selected_side,
+            ask_yes,
+            no_price,
         )
 
         # Bias calibration
@@ -181,9 +184,7 @@ class MarketScorer:
             # External signal is primary fair-value anchor.
             p_ext = external.probability_yes
             micro_tilt = (
-                0.015 * f.order_imbalance
-                + 0.010 * clamp(f.momentum_1d, -1.0, 1.0)
-                - 0.010 * f.volatility
+                0.015 * f.order_imbalance + 0.010 * clamp(f.momentum_1d, -1.0, 1.0) - 0.010 * f.volatility
             )
             p_ext_adj = clamp(p_ext + micro_tilt * external.confidence, 0.001, 0.999)
 
@@ -262,7 +263,9 @@ class MarketScorer:
             return (0.020 if "poll" in q else 0.0) - (0.020 if legal_headline_like else 0.0)
 
         if market.category == "Elections":
-            swing_state_like = any(k in q for k in ("pennsylvania", "michigan", "wisconsin", "arizona", "georgia"))
+            swing_state_like = any(
+                k in q for k in ("pennsylvania", "michigan", "wisconsin", "arizona", "georgia")
+            )
             turnout_like = any(k in q for k in ("turnout", "mail-in", "early voting"))
             return (0.025 if swing_state_like else 0.0) + (0.010 if turnout_like else 0.0)
 
