@@ -1,0 +1,42 @@
+# Phase 2c local dev stack — brings up Postgres + worker.
+#
+# Usage:
+#   docker compose up          # Postgres + worker
+#   docker compose up postgres # just the DB, run the worker directly
+#
+# The Flask API isn't in this stack yet — it still runs on Vercel preview in CI
+# and on `flask run` locally. Phase 3 will add an `api` service to this file
+# and wire the full dev stack (API + worker + 3 reference agents) per PLAN §7.3
+# item 18 ("Local dev stack").
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: polyclaw
+      POSTGRES_PASSWORD: polyclaw_dev
+      POSTGRES_DB: polyclaw
+    ports:
+      - "5432:5432"
+    volumes:
+      - polyclaw_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polyclaw -d polyclaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      POLYCLAW_DATABASE_URL: postgresql+psycopg://polyclaw:polyclaw_dev@postgres:5432/polyclaw
+      POLYCLAW_LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  polyclaw_pg:

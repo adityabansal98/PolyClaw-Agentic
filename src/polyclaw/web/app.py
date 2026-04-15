@@ -426,6 +426,60 @@ def api_v1_leaderboard():
     )
 
 
+# ── /api/v1/backtest — Phase 2c async queue ───────────────────────────────
+# Enqueue + poll routes. The worker loop (polyclaw.workers.backtest_worker) runs
+# in a separate process (Railway in prod, docker-compose locally) and picks runs
+# off via SKIP LOCKED. This route is just the producer + status peek.
+
+
+def _get_backtest_queue():
+    """Build a BacktestQueue bound to the process-wide TradingService engine."""
+    from polyclaw.workers.backtest_queue import BacktestQueue
+
+    svc = get_trading_service()
+    return BacktestQueue(svc.engine, clock=svc.clock)
+
+
+@app.route("/api/v1/backtest", methods=["POST"])
+def api_v1_backtest_enqueue():
+    from polyclaw.storage.schema import DASHBOARD_AGENT_ID
+    from polyclaw.workers.backtest_queue import QuotaExceeded
+
+    payload = request.json or {}
+    # Phase 2c uses the dashboard agent as the default caller. Phase 3 replaces
+    # this with the auth middleware's resolved bearer token → agent_id.
+    agent_id = payload.get("agent_id", DASHBOARD_AGENT_ID)
+    strategy = str(payload.get("strategy", "")).strip()
+    markets = payload.get("markets") or []
+    if not strategy:
+        return jsonify({"error": {"code": "bad_request", "message": "strategy is required"}}), 400
+    if not isinstance(markets, list) or not markets:
+        return jsonify({"error": {"code": "bad_request", "message": "markets must be a non-empty list"}}), 400
+
+    queue = _get_backtest_queue()
+    try:
+        run_id = queue.enqueue(
+            agent_id=agent_id,
+            strategy=strategy,
+            params=payload.get("params") or {},
+            markets=markets,
+            fidelity=int(payload.get("fidelity", 60)),
+            cash=float(payload.get("cash", 10_000.0)),
+        )
+    except QuotaExceeded as exc:
+        return jsonify({"error": {"code": exc.code, "message": str(exc), "details": exc.details}}), 429
+    return jsonify({"backtest_id": run_id, "status": "queued"}), 202
+
+
+@app.route("/api/v1/backtest/<run_id>")
+def api_v1_backtest_get(run_id: str):
+    queue = _get_backtest_queue()
+    row = queue.get(run_id)
+    if row is None:
+        return jsonify({"error": {"code": "not_found", "message": "unknown backtest_id"}}), 404
+    return jsonify(row)
+
+
 @app.route("/<path:full_path>")
 def frontend_routes(full_path: str):
     """Serve the compiled React frontend for non-API routes."""

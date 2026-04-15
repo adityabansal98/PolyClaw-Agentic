@@ -227,6 +227,36 @@ market_snapshots = Table(
 )
 
 
+# ── Phase 2c: async backtest queue ───────────────────────────────────────
+
+
+backtest_runs = Table(
+    "backtest_runs",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("agent_id", String, nullable=False),
+    Column("strategy", String, nullable=False),
+    # JSON string — strategy-specific params dict. Stored as String (TEXT) rather
+    # than JSONB so SQLite and Postgres share one column definition.
+    Column("params_json", String, nullable=False, server_default="{}"),
+    # JSON string — [{"token_id":..., "market_id":..., "question":..., "outcome":...}, ...]
+    Column("markets_json", String, nullable=False, server_default="[]"),
+    Column("fidelity", Integer, nullable=False, server_default="60"),
+    Column("cash", Float, nullable=False, server_default="10000"),
+    # "queued" | "running" | "finished" | "failed"
+    Column("status", String, nullable=False, server_default="queued"),
+    Column("enqueued_at_ms", BigInteger, nullable=False),
+    Column("started_at_ms", BigInteger),
+    Column("finished_at_ms", BigInteger),
+    # JSON string — BacktestResult.model_dump() on success
+    Column("result_json", String),
+    # JSON string — {"type":..., "message":...} on failure
+    Column("error_json", String),
+    Index("idx_backtest_runs_status_enqueued", "status", "enqueued_at_ms"),
+    Index("idx_backtest_runs_agent_enqueued", "agent_id", "enqueued_at_ms"),
+)
+
+
 #: The dashboard's real agent id post-migration — existing single-tenant rows backfill
 #: to this value. Not "__legacy__" — the dashboard continues to write under this id
 #: going forward; it is a real first-class tenant.
