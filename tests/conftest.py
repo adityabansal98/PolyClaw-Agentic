@@ -106,14 +106,30 @@ def engine(request, tmp_path) -> Iterator[Engine]:
     try:
         yield eng
     finally:
+        # Drop every table the schema module knows about. Using metadata.drop_all
+        # instead of a hardcoded DROP list means we don't have to remember to update
+        # this fixture every time Phase N adds a table — the source of truth is
+        # polyclaw/storage/schema.py.
+        #
+        # `price_ticks` is special: on Postgres it's a partitioned parent. Dropping
+        # the parent with CASCADE removes the children too, so metadata.drop_all
+        # handles it cleanly once the table is reflected.
         from sqlalchemy import text as _text
 
-        with eng.begin() as conn:
-            conn.execute(
-                _text(
-                    "DROP TABLE IF EXISTS portfolio_snapshots, audit_log, "
-                    "orderbook_snapshots, paper_open_orders, paper_positions, "
-                    "paper_trades, paper_config CASCADE"
+        from polyclaw.storage.schema import metadata
+
+        try:
+            metadata.drop_all(eng, checkfirst=True)
+        except Exception:
+            # Fall back: force-drop by name with CASCADE. Needed if metadata.drop_all
+            # trips on a partitioned table or a leftover schema mismatch.
+            with eng.begin() as conn:
+                conn.execute(
+                    _text(
+                        "DROP TABLE IF EXISTS "
+                        "portfolio_snapshots, audit_log, orderbook_snapshots, "
+                        "paper_open_orders, paper_positions, paper_trades, paper_config, "
+                        "price_ticks, market_snapshots CASCADE"
+                    )
                 )
-            )
         eng.dispose()
