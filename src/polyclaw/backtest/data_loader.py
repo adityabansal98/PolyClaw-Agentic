@@ -1,12 +1,15 @@
 import logging
 from dataclasses import dataclass
+from typing import Protocol
 
 import httpx
+from sqlalchemy import Engine, select
 
 from polyclaw.clients.gamma import GammaClient
 from polyclaw.clients.rate_limiter import clob_market_data_limiter
 from polyclaw.config import settings
 from polyclaw.models.market import Market
+from polyclaw.storage.schema import price_ticks
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +26,89 @@ class MarketPriceData:
     fidelity: int
 
 
+# ── Sources ────────────────────────────────────────────────────────────────
+
+
+class PriceSource(Protocol):
+    """Abstract price-history source. Two implementations: live CLOB HTTP, and the
+    Phase 2a `price_ticks` Postgres store. The backtest engine uses whichever the
+    DataLoader was constructed with; server-mode backtests always use PostgresSource
+    so agents can't DDoS the CLOB."""
+
+    def load_ticks(self, token_id: str, *, fidelity: int) -> list[tuple[int, float]]: ...
+
+
+class ClobSource:
+    """Legacy offline source. Hits `/prices-history` on the CLOB API directly. Used
+    for local dev and one-shot backfills; NOT used by server-mode backtests (Phase 2a
+    promotes PostgresSource to the prod path)."""
+
+    def __init__(self) -> None:
+        self._http = httpx.Client(base_url=settings.clob_base_url, timeout=30.0)
+
+    def load_ticks(self, token_id: str, *, fidelity: int) -> list[tuple[int, float]]:
+        clob_market_data_limiter.acquire()
+        resp = self._http.get(
+            "/prices-history",
+            params={"market": token_id, "interval": "max", "fidelity": fidelity},
+        )
+        resp.raise_for_status()
+        raw = resp.json().get("history", [])
+        ticks = [(int(point["t"]), float(point["p"])) for point in raw]
+        ticks.sort(key=lambda x: x[0])
+        return ticks
+
+
+class PostgresSource:
+    """Phase 2a server-mode source. Reads from `price_ticks` via SQLAlchemy.
+
+    `fidelity` is interpreted as the target sample period in seconds — ticks closer
+    than `fidelity` apart are thinned (keep first). This mirrors the CLOB
+    `/prices-history` fidelity parameter so the backtest engine doesn't need to know
+    which source it's reading from.
+    """
+
+    def __init__(self, engine: Engine):
+        self._engine = engine
+
+    def load_ticks(self, token_id: str, *, fidelity: int) -> list[tuple[int, float]]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                select(price_ticks.c.ts_ms, price_ticks.c.price)
+                .where(price_ticks.c.token_id == token_id)
+                .order_by(price_ticks.c.ts_ms)
+            ).all()
+        if not rows:
+            return []
+        step_ms = fidelity * 1000
+        out: list[tuple[int, float]] = []
+        last_ts = -step_ms
+        for ts_ms, price in rows:
+            if ts_ms - last_ts >= step_ms:
+                out.append((int(ts_ms), float(price)))
+                last_ts = int(ts_ms)
+        return out
+
+
+# ── DataLoader ─────────────────────────────────────────────────────────────
+
+
 class DataLoader:
     """Fetches and caches historical price data for backtesting.
 
-    Uses the CLOB API /prices-history endpoint (not Data API, which 404s).
+    The source is pluggable: `ClobSource` (default, live CLOB HTTP) for local/dev,
+    or `PostgresSource` (Phase 2a) for server-mode. Pass `source=PostgresSource(engine)`
+    to read from `price_ticks` instead of hitting the CLOB.
     """
 
-    def __init__(self, gamma: GammaClient | None = None):
+    def __init__(
+        self,
+        gamma: GammaClient | None = None,
+        *,
+        source: PriceSource | None = None,
+    ):
         self._gamma = gamma or GammaClient()
-        self._http = httpx.Client(base_url=settings.clob_base_url, timeout=30.0)
+        self._source: PriceSource = source or ClobSource()
         self._cache: dict[str, list[tuple[int, float]]] = {}
 
     def load_market_prices(
@@ -47,18 +124,13 @@ class DataLoader:
         if cache_key in self._cache:
             ticks = self._cache[cache_key]
         else:
-            clob_market_data_limiter.acquire()
-            resp = self._http.get(
-                "/prices-history",
-                params={"market": token_id, "interval": "max", "fidelity": fidelity},
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("history", [])
-            ticks = [(int(point["t"]), float(point["p"])) for point in raw]
-            ticks.sort(key=lambda x: x[0])
+            ticks = self._source.load_ticks(token_id, fidelity=fidelity)
             self._cache[cache_key] = ticks
             logger.info(
-                "Loaded %d ticks for %s (%s)", len(ticks), market_question[:40] or token_id[:20], outcome
+                "Loaded %d ticks for %s (%s)",
+                len(ticks),
+                market_question[:40] or token_id[:20],
+                outcome,
             )
 
         return MarketPriceData(

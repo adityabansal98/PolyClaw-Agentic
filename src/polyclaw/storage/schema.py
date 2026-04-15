@@ -151,7 +151,51 @@ portfolio_snapshots = Table(
 )
 
 
+# ── Phase 2a: historical tick store ──────────────────────────────────────
+
+
+price_ticks = Table(
+    "price_ticks",
+    metadata,
+    # The surrogate id exists so audit_log.price_tick_id can FK here without coupling
+    # to (token_id, ts_ms). On Postgres the *physical* storage is partitioned by hash
+    # on token_id (see `ensure_schema` for the partition DDL); SQLAlchemy can't express
+    # partition clauses directly, so the Table definition is the logical shape and the
+    # partitioning is layered on during ensure_schema().
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("token_id", String, nullable=False),
+    Column("ts_ms", BigInteger, nullable=False),
+    Column("price", Float, nullable=False),
+    # Where the tick came from: "clob_price_history", "clob_snapshot", "backfill", etc.
+    # Kept explicit so backfilled + live-ingested rows are distinguishable.
+    Column("source", String, nullable=False, server_default="clob"),
+    Index("idx_price_ticks_token_ts", "token_id", "ts_ms"),
+)
+
+
+market_snapshots = Table(
+    "market_snapshots",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("market_id", String, nullable=False),
+    Column("ts_ms", BigInteger, nullable=False),
+    Column("yes_price", Float),
+    Column("no_price", Float),
+    Column("liquidity", Float),
+    Column("volume_24h", Float),
+    Column("best_bid", Float),
+    Column("best_ask", Float),
+    Index("idx_market_snapshots_market_ts", "market_id", "ts_ms"),
+)
+
+
 #: The dashboard's real agent id post-migration — existing single-tenant rows backfill
 #: to this value. Not "__legacy__" — the dashboard continues to write under this id
 #: going forward; it is a real first-class tenant.
 DASHBOARD_AGENT_ID = "__dashboard__"
+
+#: Number of hash partitions used for `price_ticks` on Postgres. Chosen for v1 —
+#: with 16 partitions and ~100 active tokens per season, each partition holds ~6-7
+#: tokens' worth of ticks. Large enough to spread write load; small enough that
+#: per-partition index maintenance is cheap.
+PRICE_TICKS_PARTITION_COUNT = 16
