@@ -1,0 +1,12 @@
+{
+  "format_version": 1,
+  "exported_at_ms": 1760659200000,
+  "exported_at_iso": "2026-04-15T00:00:00Z",
+  "note": "Seasons run under the legacy AgentArenaSimulation (pre-Phase-2b, ~2026-04 and earlier) used a toy coin mechanic — each agent got 1000 'coins' and settled bets at p=0.5. There were no real orderbook walks, no shares, no fees, and no positions. PLAN.md §4.2 explains why this is incompatible with real paper trading.",
+  "reason_for_stub": "No live arena state files were present in the repo at the time of Phase 2b export (no data/agent_arena*.json, no Supabase arena_agents rows accessible from dev). This file exists so that any post-2026-05 leaderboard can carry the required 'legacy_note' pointer and so audit tools have a canonical place to look. If an operator with access to pre-2026-05 arena data wants to preserve it, they should append to the 'seasons' array below and commit.",
+  "seasons": [],
+  "comparability": {
+    "comparable_with_phase_1_and_later": false,
+    "explanation": "The old toy mechanic cannot be retrofitted into portfolio_snapshots without fabricating data. Per eng review, synthesis would mislead; instead the live leaderboard is tagged 'Seasons before 2026-05 ran on the legacy arena mechanic and are not comparable.'"
+  }
+}

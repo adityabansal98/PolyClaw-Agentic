@@ -151,6 +151,44 @@ portfolio_snapshots = Table(
 )
 
 
+# ── Phase 2b: agent registry ─────────────────────────────────────────────
+
+
+agents = Table(
+    "agents",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("name", String, nullable=False),
+    Column("owner_contact", String, server_default=""),
+    Column("created_at", BigInteger, nullable=False),
+    # "active" | "revoked" | "draft"
+    Column("status", String, nullable=False, server_default="active"),
+    # FK to seasons.id once Phase 4 lands; nullable until then.
+    Column("season_id", String),
+    Column("starting_balance", Float, nullable=False, server_default="10000"),
+    # "hosted_inprocess" | "external_http" | "external_mcp"
+    Column("tier", String, nullable=False, server_default="hosted_inprocess"),
+    UniqueConstraint("name", name="uq_agents_name"),
+    Index("idx_agents_status", "status"),
+)
+
+
+agent_keys = Table(
+    "agent_keys",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("agent_id", String, nullable=False),
+    # SHA256 hex of the bearer token. The plaintext token is shown to the user
+    # exactly once at creation and never persisted.
+    Column("key_hash", String, nullable=False),
+    Column("created_at", BigInteger, nullable=False),
+    Column("last_used_at", BigInteger),
+    Column("revoked_at", BigInteger),
+    UniqueConstraint("key_hash", name="uq_agent_keys_hash"),
+    Index("idx_agent_keys_agent", "agent_id"),
+)
+
+
 # ── Phase 2a: historical tick store ──────────────────────────────────────
 
 
