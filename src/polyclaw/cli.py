@@ -173,9 +173,9 @@ def main():
 
     elif args.command == "paper-reset":
         from polyclaw.config import settings
-        from polyclaw.trading.paper_trader import PaperTrader
+        from polyclaw.trading.paper_trader import make_dashboard_trader
 
-        trader = PaperTrader(
+        trader = make_dashboard_trader(
             db_path=settings.paper_db_path,
             starting_balance=settings.paper_starting_balance,
         )

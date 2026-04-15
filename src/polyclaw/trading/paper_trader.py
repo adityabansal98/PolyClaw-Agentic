@@ -1,10 +1,68 @@
-import logging
-import sqlite3
-import time
-import uuid
+"""Multi-tenant paper trading engine — Phase 1.
 
-from polyclaw.clients.clob import ClobClientWrapper
+Rewritten from the Phase 0 single-tenant implementation. Changes from Phase 0:
+
+- `agent_id` is a required constructor parameter; every query scopes by it.
+- `Clock` and `MarketDataProvider` are injected — no `time.time()` or `clob.get_orderbook()`
+  calls anywhere in the trading path. Production uses `SystemClock` + `LiveMarketDataProvider`;
+  replay tests use `VirtualClock` + `ReplayMarketDataProvider`.
+- Fill math uses `decimal.Decimal` at the boundary. Floats are not associative across
+  platforms, so "byte-identical replay" isn't achievable with float arithmetic. Decimal
+  is the only honest way to make the §10 success criterion hold.
+- SQLAlchemy Core replaces the two parallel SQLite + PostgREST code paths. One code path
+  works against both dialects.
+- Cash debits go through `SELECT ... FOR UPDATE` on Postgres / `BEGIN IMMEDIATE` on SQLite
+  so two threads debiting the same agent's cash can't lose writes.
+- Every `place_order` that results in a fill writes a row to `audit_log` + links the
+  `orderbook_snapshots` row that drove the fill, transactionally with the trade row.
+- A `PortfolioSampler` helper records `portfolio_snapshots` on every trade and (in prod)
+  every 60s via an in-process sampler. The Phase 2c worker will take over the 60s cadence
+  in production; the in-process path stays for dev.
+
+Out of scope (Phase 2+):
+- `TradingService` + `RiskGate` wrapper
+- `AgentRegistry` integration (agents are still identified by bare string ids)
+- Postgres `price_ticks` source (the `audit_log.price_tick_id` column is reserved but nullable)
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from decimal import ROUND_HALF_EVEN, Decimal, getcontext
+from typing import Any
+
+from sqlalchemy import Engine, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+from polyclaw.storage.db import (
+    AgentNotInitialized,
+    begin_exclusive,
+    ensure_agent_row,
+    ensure_schema,
+    is_postgres,
+    make_engine,
+)
+from polyclaw.storage.schema import (
+    DASHBOARD_AGENT_ID,
+    audit_log,
+    orderbook_snapshots,
+    paper_config,
+    paper_open_orders,
+    paper_positions,
+    paper_trades,
+    portfolio_snapshots,
+)
+from polyclaw.trading.clock import Clock, SystemClock
 from polyclaw.trading.interface import TraderInterface
+from polyclaw.trading.market_data import (
+    LiveMarketDataProvider,
+    MarketDataProvider,
+    orderbook_content_hash,
+    orderbook_to_json,
+)
 from polyclaw.trading.models import (
     OrderResult,
     OrderStatus,
@@ -17,311 +75,393 @@ from polyclaw.trading.models import (
 
 logger = logging.getLogger(__name__)
 
-PAPER_SCHEMA = """
-CREATE TABLE IF NOT EXISTS paper_config (
-    key TEXT PRIMARY KEY,
-    value TEXT
-);
+# Decimal precision wide enough to handle (size * price * fee_rate) without losing bits.
+# 28 is Python's default; we bump to 40 to be safe against pathological multi-level fills.
+getcontext().prec = 40
+_Q_USDC = Decimal("0.00000001")  # 8-dp quantization for serialized cash amounts
 
-CREATE TABLE IF NOT EXISTS paper_trades (
-    id TEXT PRIMARY KEY,
-    token_id TEXT NOT NULL,
-    market_id TEXT NOT NULL,
-    market_question TEXT DEFAULT '',
-    outcome TEXT DEFAULT '',
-    side TEXT NOT NULL,
-    order_type TEXT NOT NULL,
-    requested_price REAL,
-    filled_price REAL,
-    filled_size REAL,
-    total_cost REAL,
-    fee REAL NOT NULL DEFAULT 0,
-    status TEXT NOT NULL,
-    timestamp BIGINT NOT NULL
-);
 
-CREATE TABLE IF NOT EXISTS paper_positions (
-    token_id TEXT PRIMARY KEY,
-    market_id TEXT NOT NULL,
-    market_question TEXT DEFAULT '',
-    outcome TEXT DEFAULT '',
-    shares REAL NOT NULL DEFAULT 0,
-    avg_entry_price REAL NOT NULL DEFAULT 0,
-    realized_pnl REAL NOT NULL DEFAULT 0
-);
+def _d(x: float | int | str | Decimal) -> Decimal:
+    """Convert to Decimal via string to avoid float→Decimal bit-noise."""
+    return x if isinstance(x, Decimal) else Decimal(str(x))
 
-CREATE TABLE IF NOT EXISTS paper_open_orders (
-    id TEXT PRIMARY KEY,
-    token_id TEXT NOT NULL,
-    market_id TEXT NOT NULL,
-    market_question TEXT DEFAULT '',
-    outcome TEXT DEFAULT '',
-    side TEXT NOT NULL,
-    price REAL NOT NULL,
-    size REAL NOT NULL,
-    filled_size REAL NOT NULL DEFAULT 0,
-    timestamp BIGINT NOT NULL
-);
 
-CREATE INDEX IF NOT EXISTS idx_paper_trades_token ON paper_trades(token_id);
-CREATE INDEX IF NOT EXISTS idx_paper_trades_ts ON paper_trades(timestamp);
-"""
+def _q(x: Decimal) -> float:
+    """Quantize a Decimal to 8dp and return as float for JSON / DB serialization."""
+    return float(x.quantize(_Q_USDC, rounding=ROUND_HALF_EVEN))
+
+
+# ── Provenance hashing ─────────────────────────────────────────────────────
+
+
+def _hash_request(order: TradeOrder) -> str:
+    import hashlib
+
+    payload = json.dumps(
+        {
+            "token_id": order.token_id,
+            "market_id": order.market_id,
+            "side": order.side.value,
+            "order_type": order.order_type.value,
+            "price": order.price,
+            "size": order.size,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _hash_response(result: OrderResult) -> str:
+    import hashlib
+
+    payload = json.dumps(
+        {
+            "status": result.status.value,
+            "filled_price": result.filled_price,
+            "filled_size": result.filled_size,
+            "total_cost": result.total_cost,
+            "message": result.message,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+# ── PaperTrader ────────────────────────────────────────────────────────────
 
 
 class PaperTrader(TraderInterface):
-    """Simulated trading engine that uses real Polymarket orderbook data.
-
-    Supports two backends:
-    - SQLite (local dev, default)
-    - Supabase Postgres (production / Vercel)
-
-    Set via POLYCLAW_DB_BACKEND=sqlite|supabase in .env.
-    """
+    """Multi-tenant paper trader. One instance per agent + process; safe to share the
+    underlying `Engine` across instances."""
 
     def __init__(
         self,
-        db_path: str = "paper_trading.db",
+        *,
+        agent_id: str,
+        engine: Engine,
+        clock: Clock | None = None,
+        market_data: MarketDataProvider | None = None,
         starting_balance: float = 10_000.0,
-        clob: ClobClientWrapper | None = None,
-        backend: str | None = None,
+        season_id: str | None = None,
     ):
-        from polyclaw.config import settings
+        if not agent_id:
+            raise ValueError("PaperTrader requires a non-empty agent_id")
+        self.agent_id = agent_id
+        self.engine = engine
+        self.clock: Clock = clock or SystemClock()
+        self.market_data: MarketDataProvider = market_data or LiveMarketDataProvider()
+        self.season_id = season_id
 
-        settings.enforce_production_guard()
-        self._backend = backend or settings.db_backend
-        self._sb = None  # Supabase client (lazy)
-        self._conn = None  # SQLite connection (lazy)
+        ensure_schema(engine)
+        ensure_agent_row(engine, agent_id, starting_balance)
 
-        if self._backend == "supabase":
-            from polyclaw.storage.supabase_db import SupabaseDB
+        # Fee rate cache is per-instance; the underlying CLOB client lives inside
+        # `market_data` if the provider is live.
+        self._fee_bps_cache: dict[str, int] = {}
 
-            self._sb = SupabaseDB(url=settings.supabase_url, key=settings.supabase_key)
-            # Tables + initial data already created via migration
-        else:
-            self._conn = sqlite3.connect(db_path, check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.executescript(PAPER_SCHEMA)
-            try:
-                self._conn.execute("ALTER TABLE paper_trades ADD COLUMN fee REAL NOT NULL DEFAULT 0")
-                self._conn.commit()
-            except sqlite3.OperationalError:
-                pass
-            # Initialize balance if first run
-            row = self._conn.execute("SELECT value FROM paper_config WHERE key = 'cash_balance'").fetchone()
-            if row is None:
-                self._conn.execute(
-                    "INSERT INTO paper_config (key, value) VALUES ('cash_balance', ?)",
-                    (str(starting_balance),),
-                )
-                self._conn.execute(
-                    "INSERT INTO paper_config (key, value) VALUES ('starting_balance', ?)",
-                    (str(starting_balance),),
-                )
-                self._conn.commit()
+        logger.info("PaperTrader initialized for agent_id=%s on %s", agent_id, engine.url.drivername)
 
-        self.clob = clob or ClobClientWrapper()
-        self._fee_cache: dict[str, int] = {}
-        logger.info("Paper trading initialized (%s backend)", self._backend)
+    # ── Cash helpers ────────────────────────────────────────────
 
-    # ── DB helpers ──────────────────────────────────────────────
-
-    def _get_cash(self) -> float:
-        if self._backend == "supabase":
-            row = self._sb.select_one("paper_config", where={"key": "cash_balance"})
-            return float(row["value"]) if row else 0.0
-        else:
-            row = self._conn.execute("SELECT value FROM paper_config WHERE key = 'cash_balance'").fetchone()
-            return float(row["value"])
-
-    def _set_cash(self, amount: float):
-        if self._backend == "supabase":
-            self._sb.update("paper_config", {"value": str(amount)}, where={"key": "cash_balance"})
-        else:
-            self._conn.execute(
-                "UPDATE paper_config SET value = ? WHERE key = 'cash_balance'",
-                (str(amount),),
+    def _get_cash(self, conn: Any) -> Decimal:
+        row = conn.execute(
+            select(paper_config.c.value)
+            .where(paper_config.c.agent_id == self.agent_id)
+            .where(paper_config.c.key == "cash_balance")
+        ).first()
+        if row is None:
+            raise AgentNotInitialized(
+                f"No paper_config row for agent_id={self.agent_id!r}. "
+                "Create the agent via AgentRegistry (or PaperTrader's starting_balance "
+                "seeding path) before trading."
             )
+        return _d(row[0])
 
-    def _get_fee_rate(self, token_id: str) -> float:
-        if token_id in self._fee_cache:
-            return self._fee_cache[token_id] / 10_000
-        try:
-            bps = self.clob._client.get_fee_rate_bps(token_id)
-        except Exception:
-            bps = 0
-            logger.warning("Failed to fetch fee rate for %s, defaulting to 0", token_id[:30])
-        self._fee_cache[token_id] = bps
-        return bps / 10_000
-
-    def _get_held_shares(self, token_id: str) -> float:
-        if self._backend == "supabase":
-            row = self._sb.select_one("paper_positions", where={"token_id": token_id})
-            return float(row["shares"]) if row else 0.0
-        else:
-            row = self._conn.execute(
-                "SELECT shares FROM paper_positions WHERE token_id = ?",
-                (token_id,),
-            ).fetchone()
-            return row["shares"] if row else 0.0
-
-    def _insert_trade(self, trade_id, order, avg_price, total_shares, total_cost, fee, status):
-        now = int(time.time() * 1000)
-        data = {
-            "id": trade_id,
-            "token_id": order.token_id,
-            "market_id": order.market_id,
-            "market_question": order.market_question,
-            "outcome": order.outcome,
-            "side": order.side.value,
-            "order_type": order.order_type.value,
-            "requested_price": order.price,
-            "filled_price": avg_price,
-            "filled_size": total_shares,
-            "total_cost": total_cost,
-            "fee": fee,
-            "status": status.value,
-            "timestamp": now,
-        }
-        if self._backend == "supabase":
-            self._sb.insert("paper_trades", data)
-        else:
-            self._conn.execute(
-                """INSERT INTO paper_trades
-                   (id, token_id, market_id, market_question, outcome, side,
-                    order_type, requested_price, filled_price, filled_size,
-                    total_cost, fee, status, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    trade_id,
-                    order.token_id,
-                    order.market_id,
-                    order.market_question,
-                    order.outcome,
-                    order.side.value,
-                    order.order_type.value,
-                    order.price,
-                    avg_price,
-                    total_shares,
-                    total_cost,
-                    fee,
-                    status.value,
-                    now,
+    def _get_cash_for_update(self, conn: Any) -> Decimal:
+        """Lock the cash row for update (Postgres only; SQLite is covered by BEGIN IMMEDIATE)."""
+        if is_postgres(conn):
+            row = conn.execute(
+                text(
+                    "SELECT value FROM paper_config WHERE agent_id = :a AND key = 'cash_balance' FOR UPDATE"
                 ),
+                {"a": self.agent_id},
+            ).first()
+            if row is None:
+                raise AgentNotInitialized(f"No paper_config row for agent_id={self.agent_id!r}")
+            return _d(row[0])
+        return self._get_cash(conn)
+
+    def _set_cash(self, conn: Any, amount: Decimal) -> None:
+        conn.execute(
+            update(paper_config)
+            .where(paper_config.c.agent_id == self.agent_id)
+            .where(paper_config.c.key == "cash_balance")
+            .values(value=str(_q(amount)))
+        )
+
+    def _get_fee_rate(self, token_id: str) -> Decimal:
+        if token_id in self._fee_bps_cache:
+            return _d(self._fee_bps_cache[token_id]) / _d(10_000)
+        bps = 0
+        # Only the live provider knows how to fetch fee rates. Replay tests should
+        # use a fee_rate that's set on the provider or left at 0.
+        live = getattr(self.market_data, "_clob", None)
+        if live is not None:
+            try:
+                bps = live._client.get_fee_rate_bps(token_id)
+            except Exception:
+                logger.warning("Failed to fetch fee rate for %s, defaulting to 0", token_id[:20])
+        self._fee_bps_cache[token_id] = int(bps)
+        return _d(bps) / _d(10_000)
+
+    def _get_held_shares(self, conn: Any, token_id: str) -> Decimal:
+        row = conn.execute(
+            select(paper_positions.c.shares)
+            .where(paper_positions.c.agent_id == self.agent_id)
+            .where(paper_positions.c.token_id == token_id)
+        ).first()
+        return _d(row[0]) if row else _d(0)
+
+    # ── Audit + snapshot writes ─────────────────────────────────
+
+    def _persist_orderbook_snapshot(
+        self, conn: Any, book_json: str, content_hash: str, token_id: str, ts_ms: int
+    ) -> int:
+        """Insert an orderbook snapshot, deduping on content_hash. Returns the row id."""
+        # Try fast path: find existing row by hash.
+        existing = conn.execute(
+            select(orderbook_snapshots.c.id).where(orderbook_snapshots.c.content_hash == content_hash)
+        ).first()
+        if existing is not None:
+            return int(existing[0])
+
+        insert_fn = pg_insert if is_postgres(conn) else sqlite_insert
+        stmt = insert_fn(orderbook_snapshots).values(
+            token_id=token_id,
+            ts_ms=ts_ms,
+            snapshot_json=book_json,
+            content_hash=content_hash,
+        )
+        # On conflict (concurrent writer raced us), fetch the existing row.
+        stmt = stmt.on_conflict_do_nothing(index_elements=["content_hash"])
+        result = conn.execute(stmt)
+        inserted_pk = result.inserted_primary_key
+        if inserted_pk is not None and inserted_pk[0] is not None:
+            return int(inserted_pk[0])
+        # Lost the race — look up the winning row.
+        row = conn.execute(
+            select(orderbook_snapshots.c.id).where(orderbook_snapshots.c.content_hash == content_hash)
+        ).first()
+        assert row is not None
+        return int(row[0])
+
+    def _write_audit(
+        self,
+        conn: Any,
+        *,
+        endpoint: str,
+        request_hash: str,
+        response_hash: str,
+        orderbook_snapshot_id: int | None,
+        request_id: str,
+    ) -> None:
+        conn.execute(
+            audit_log.insert().values(
+                agent_id=self.agent_id,
+                ts_ms=self.clock.now_ms(),
+                endpoint=endpoint,
+                request_hash=request_hash,
+                response_hash=response_hash,
+                orderbook_snapshot_id=orderbook_snapshot_id,
+                price_tick_id=None,  # Phase 2a
+                season_id=self.season_id,
+                request_id=request_id,
             )
-            self._conn.commit()
+        )
 
     # ── Order execution ─────────────────────────────────────────
 
-    def place_order(self, order: TradeOrder) -> OrderResult:
+    def place_order(self, order: TradeOrder, *, request_id: str | None = None) -> OrderResult:
+        request_id = request_id or str(uuid.uuid4())
         if order.order_type == TradeOrderType.MARKET:
-            return self._execute_market_order(order)
-        else:
-            return self._execute_limit_order(order)
+            return self._execute_market_order(order, request_id=request_id)
+        return self._execute_limit_order(order, request_id=request_id)
 
-    def _execute_market_order(self, order: TradeOrder) -> OrderResult:
+    def _execute_market_order(self, order: TradeOrder, *, request_id: str) -> OrderResult:
         trade_id = str(uuid.uuid4())[:12]
+        as_of = self.clock.now_ms()
 
+        # 1) Fetch the orderbook via the provider (NOT direct CLOB). This is the
+        #    critical replay fix — live mode pass-through, replay mode reads a
+        #    frozen snapshot.
         try:
-            ob = self.clob.get_orderbook(order.token_id)
+            book = self.market_data.get_orderbook(order.token_id, as_of_ts=as_of)
         except Exception as e:
-            return OrderResult(
+            result = OrderResult(
                 order_id=trade_id,
                 status=OrderStatus.REJECTED,
                 message=f"Failed to fetch orderbook: {e}",
             )
+            return result
 
-        if order.side == Side.BUY:
-            levels = sorted(ob.asks, key=lambda l: l.price)
-        else:
-            levels = sorted(ob.bids, key=lambda l: l.price, reverse=True)
-
-        if not levels:
+        # 2) Compute the fill against the frozen book (Decimal math, no DB yet).
+        plan = self._plan_market_fill(order, book, as_of)
+        if plan["status"] == OrderStatus.REJECTED:
             return OrderResult(
                 order_id=trade_id,
                 status=OrderStatus.REJECTED,
-                message=f"No {'asks' if order.side == Side.BUY else 'bids'} in orderbook",
+                message=plan["message"],
             )
 
-        cash = self._get_cash()
+        # 3) Persist: cash, position, trade, audit, snapshot — all in one tx.
+        with self.engine.connect() as conn, begin_exclusive(conn):
+            cash = self._get_cash_for_update(conn)
+            total_cost: Decimal = plan["total_cost"]
+            total_shares: Decimal = plan["total_shares"]
+            fee: Decimal = plan["fee"]
+            avg_price: Decimal = plan["avg_price"]
 
-        if order.side == Side.SELL:
-            held = self._get_held_shares(order.token_id)
-            if held <= 0:
-                return OrderResult(
-                    order_id=trade_id,
-                    status=OrderStatus.REJECTED,
-                    message="No shares held to sell",
+            if order.side == Side.BUY:
+                if cash < total_cost + fee:
+                    # Rare: liquidity shifted between plan and lock. Reject honestly.
+                    return OrderResult(
+                        order_id=trade_id,
+                        status=OrderStatus.REJECTED,
+                        message="Insufficient cash at execution time",
+                    )
+                new_cash = cash - total_cost - fee
+            else:
+                held = self._get_held_shares(conn, order.token_id)
+                if held < total_shares:
+                    return OrderResult(
+                        order_id=trade_id,
+                        status=OrderStatus.REJECTED,
+                        message=f"Insufficient shares held ({float(held)} < {float(total_shares)})",
+                    )
+                new_cash = cash + total_cost - fee
+
+            self._set_cash(conn, new_cash)
+            self._update_position(conn, order, total_shares, avg_price)
+
+            snapshot_id = self._persist_orderbook_snapshot(
+                conn,
+                book_json=plan["book_json"],
+                content_hash=plan["book_hash"],
+                token_id=order.token_id,
+                ts_ms=as_of,
+            )
+
+            conn.execute(
+                paper_trades.insert().values(
+                    id=trade_id,
+                    agent_id=self.agent_id,
+                    token_id=order.token_id,
+                    market_id=order.market_id,
+                    market_question=order.market_question,
+                    outcome=order.outcome,
+                    side=order.side.value,
+                    order_type=order.order_type.value,
+                    requested_price=order.price,
+                    filled_price=_q(avg_price),
+                    filled_size=_q(total_shares),
+                    total_cost=_q(total_cost),
+                    fee=_q(fee),
+                    status=OrderStatus.FILLED.value,
+                    timestamp=as_of,
                 )
-            effective_size = min(order.size, held)
+            )
+
+            result = OrderResult(
+                order_id=trade_id,
+                status=OrderStatus.FILLED,
+                filled_price=_q(avg_price),
+                filled_size=_q(total_shares),
+                total_cost=_q(total_cost),
+            )
+
+            self._write_audit(
+                conn,
+                endpoint="orders.place_market",
+                request_hash=_hash_request(order),
+                response_hash=_hash_response(result),
+                orderbook_snapshot_id=snapshot_id,
+                request_id=request_id,
+            )
+
+            self._snapshot_portfolio(conn, ts_ms=as_of)
+
+        logger.info(
+            "PAPER %s %s %s: %.4f shares @ %.4f (cost %.2f, fee %.2f) [%s]",
+            self.agent_id,
+            order.side.value,
+            order.outcome,
+            float(total_shares),
+            float(avg_price),
+            float(total_cost),
+            float(fee),
+            trade_id,
+        )
+        return result
+
+    def _plan_market_fill(self, order: TradeOrder, book, as_of_ts: int) -> dict:
+        """Walk the orderbook and compute the fill in Decimal, without touching the DB."""
+        if order.side == Side.BUY:
+            levels = sorted(book.asks, key=lambda lv: lv.price)
         else:
-            effective_size = order.size
+            levels = sorted(book.bids, key=lambda lv: lv.price, reverse=True)
 
-        remaining = effective_size
-        total_cost = 0.0
-        total_shares = 0.0
+        if not levels:
+            return {
+                "status": OrderStatus.REJECTED,
+                "message": f"No {'asks' if order.side == Side.BUY else 'bids'} in orderbook",
+            }
 
+        remaining = _d(order.size)
+        total_cost = _d(0)
+        total_shares = _d(0)
+
+        # For BUY, `size` is USDC; for SELL, `size` is shares. Matches the TradeOrder docstring.
         for level in levels:
             if remaining <= 0:
                 break
+            lvl_price = _d(level.price)
+            lvl_size = _d(level.size)
             if order.side == Side.BUY:
-                cash_left = cash - total_cost
-                if cash_left <= 0:
-                    break
-                usdc_at_level = level.size * level.price
-                usdc_to_fill = min(remaining, usdc_at_level, cash_left)
-                shares_filled = usdc_to_fill / level.price
+                usdc_at_level = lvl_size * lvl_price
+                usdc_to_fill = min(remaining, usdc_at_level)
+                shares_filled = usdc_to_fill / lvl_price
                 total_cost += usdc_to_fill
                 total_shares += shares_filled
                 remaining -= usdc_to_fill
             else:
-                shares_at_level = min(remaining, level.size)
-                usdc_received = shares_at_level * level.price
+                shares_at_level = min(remaining, lvl_size)
+                usdc_received = shares_at_level * lvl_price
                 total_cost += usdc_received
                 total_shares += shares_at_level
                 remaining -= shares_at_level
 
         if total_shares == 0:
-            return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
-                message="Insufficient liquidity in orderbook",
-            )
+            return {"status": OrderStatus.REJECTED, "message": "Insufficient liquidity in orderbook"}
 
-        avg_price = total_cost / total_shares if total_shares > 0 else 0
+        avg_price = total_cost / total_shares
         fee_rate = self._get_fee_rate(order.token_id)
         fee = total_cost * fee_rate
 
-        if order.side == Side.BUY:
-            self._set_cash(cash - total_cost - fee)
-        else:
-            self._set_cash(cash + total_cost - fee)
-        self._update_position(order, total_shares, avg_price)
-        self._insert_trade(trade_id, order, avg_price, total_shares, total_cost, fee, OrderStatus.FILLED)
+        return {
+            "status": OrderStatus.FILLED,
+            "total_cost": total_cost,
+            "total_shares": total_shares,
+            "avg_price": avg_price,
+            "fee": fee,
+            "book_json": orderbook_to_json(book),
+            "book_hash": orderbook_content_hash(book),
+        }
 
-        fee_str = f" (fee ${fee:.2f})" if fee > 0 else ""
-        logger.info(
-            "PAPER %s %s: %.2f shares @ avg $%.4f (cost $%.2f%s) | %s [%s]",
-            order.side.value,
-            order.outcome,
-            total_shares,
-            avg_price,
-            total_cost,
-            fee_str,
-            order.market_question[:40],
-            trade_id,
-        )
-
-        return OrderResult(
-            order_id=trade_id,
-            status=OrderStatus.FILLED,
-            filled_price=avg_price,
-            filled_size=total_shares,
-            total_cost=total_cost,
-        )
-
-    def _execute_limit_order(self, order: TradeOrder) -> OrderResult:
+    def _execute_limit_order(self, order: TradeOrder, *, request_id: str) -> OrderResult:
         trade_id = str(uuid.uuid4())[:12]
+        as_of = self.clock.now_ms()
 
         if order.price is None:
             return OrderResult(
@@ -331,7 +471,7 @@ class PaperTrader(TraderInterface):
             )
 
         try:
-            ob = self.clob.get_orderbook(order.token_id)
+            book = self.market_data.get_orderbook(order.token_id, as_of_ts=as_of)
         except Exception as e:
             return OrderResult(
                 order_id=trade_id,
@@ -340,248 +480,266 @@ class PaperTrader(TraderInterface):
             )
 
         if order.side == Side.BUY:
-            fillable_levels = [a for a in ob.asks if a.price <= order.price]
-            fillable_levels.sort(key=lambda l: l.price)
+            fillable = sorted([lv for lv in book.asks if lv.price <= order.price], key=lambda lv: lv.price)
         else:
-            fillable_levels = [b for b in ob.bids if b.price >= order.price]
-            fillable_levels.sort(key=lambda l: l.price, reverse=True)
-
-        if not fillable_levels:
-            now = int(time.time() * 1000)
-            data = {
-                "id": trade_id,
-                "token_id": order.token_id,
-                "market_id": order.market_id,
-                "market_question": order.market_question,
-                "outcome": order.outcome,
-                "side": order.side.value,
-                "price": order.price,
-                "size": order.size,
-                "filled_size": 0,
-                "timestamp": now,
-            }
-            if self._backend == "supabase":
-                self._sb.insert("paper_open_orders", data)
-            else:
-                self._conn.execute(
-                    """INSERT INTO paper_open_orders
-                       (id, token_id, market_id, market_question, outcome,
-                        side, price, size, filled_size, timestamp)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-                    (
-                        trade_id,
-                        order.token_id,
-                        order.market_id,
-                        order.market_question,
-                        order.outcome,
-                        order.side.value,
-                        order.price,
-                        order.size,
-                        now,
-                    ),
-                )
-                self._conn.commit()
-
-            return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.PENDING,
-                message="Limit order placed (not yet fillable at current prices)",
+            fillable = sorted(
+                [lv for lv in book.bids if lv.price >= order.price], key=lambda lv: lv.price, reverse=True
             )
 
-        effective_size = order.size
-        if order.side == Side.SELL:
-            held = self._get_held_shares(order.token_id)
-            if held <= 0:
-                return OrderResult(
-                    order_id=trade_id,
-                    status=OrderStatus.REJECTED,
-                    message="No shares held to sell",
+        if not fillable:
+            # Resting limit order → paper_open_orders.
+            with self.engine.connect() as conn, begin_exclusive(conn):
+                conn.execute(
+                    paper_open_orders.insert().values(
+                        id=trade_id,
+                        agent_id=self.agent_id,
+                        token_id=order.token_id,
+                        market_id=order.market_id,
+                        market_question=order.market_question,
+                        outcome=order.outcome,
+                        side=order.side.value,
+                        price=order.price,
+                        size=order.size,
+                        filled_size=0,
+                        timestamp=as_of,
+                    )
                 )
-            effective_size = min(order.size, held)
+                result = OrderResult(
+                    order_id=trade_id,
+                    status=OrderStatus.PENDING,
+                    message="Limit order placed (not yet fillable)",
+                )
+                self._write_audit(
+                    conn,
+                    endpoint="orders.place_limit_pending",
+                    request_hash=_hash_request(order),
+                    response_hash=_hash_response(result),
+                    orderbook_snapshot_id=None,
+                    request_id=request_id,
+                )
+            return result
 
-        cash = self._get_cash()
-        remaining = effective_size
-        total_cost = 0.0
-        total_shares = 0.0
-
-        for level in fillable_levels:
+        # Fillable → walk the book (Decimal)
+        remaining = _d(order.size)
+        total_cost = _d(0)
+        total_shares = _d(0)
+        for level in fillable:
             if remaining <= 0:
                 break
-            fill = min(remaining, level.size)
-            if order.side == Side.BUY:
-                level_cost = fill * level.price
-                cash_left = cash - total_cost
-                if level_cost > cash_left:
-                    fill = cash_left / level.price
-                    if fill <= 0:
-                        break
-            total_cost += fill * level.price
+            fill = min(remaining, _d(level.size))
+            total_cost += fill * _d(level.price)
             total_shares += fill
             remaining -= fill
 
         if total_shares == 0:
             return OrderResult(
-                order_id=trade_id,
-                status=OrderStatus.REJECTED,
-                message="Insufficient funds or liquidity",
+                order_id=trade_id, status=OrderStatus.REJECTED, message="Insufficient liquidity"
             )
 
-        avg_price = total_cost / total_shares if total_shares > 0 else order.price
+        avg_price = total_cost / total_shares
         fee_rate = self._get_fee_rate(order.token_id)
         fee = total_cost * fee_rate
 
+        with self.engine.connect() as conn, begin_exclusive(conn):
+            cash = self._get_cash_for_update(conn)
+            if order.side == Side.BUY:
+                if cash < total_cost + fee:
+                    return OrderResult(
+                        order_id=trade_id,
+                        status=OrderStatus.REJECTED,
+                        message="Insufficient cash at execution time",
+                    )
+                new_cash = cash - total_cost - fee
+            else:
+                held = self._get_held_shares(conn, order.token_id)
+                if held < total_shares:
+                    return OrderResult(
+                        order_id=trade_id,
+                        status=OrderStatus.REJECTED,
+                        message="Insufficient shares held",
+                    )
+                new_cash = cash + total_cost - fee
+
+            self._set_cash(conn, new_cash)
+            self._update_position(conn, order, total_shares, avg_price)
+
+            snapshot_id = self._persist_orderbook_snapshot(
+                conn,
+                book_json=orderbook_to_json(book),
+                content_hash=orderbook_content_hash(book),
+                token_id=order.token_id,
+                ts_ms=as_of,
+            )
+
+            status = OrderStatus.FILLED if remaining <= 0 else OrderStatus.PARTIALLY_FILLED
+            conn.execute(
+                paper_trades.insert().values(
+                    id=trade_id,
+                    agent_id=self.agent_id,
+                    token_id=order.token_id,
+                    market_id=order.market_id,
+                    market_question=order.market_question,
+                    outcome=order.outcome,
+                    side=order.side.value,
+                    order_type=order.order_type.value,
+                    requested_price=order.price,
+                    filled_price=_q(avg_price),
+                    filled_size=_q(total_shares),
+                    total_cost=_q(total_cost),
+                    fee=_q(fee),
+                    status=status.value,
+                    timestamp=as_of,
+                )
+            )
+            result = OrderResult(
+                order_id=trade_id,
+                status=status,
+                filled_price=_q(avg_price),
+                filled_size=_q(total_shares),
+                total_cost=_q(total_cost),
+            )
+            self._write_audit(
+                conn,
+                endpoint="orders.place_limit",
+                request_hash=_hash_request(order),
+                response_hash=_hash_response(result),
+                orderbook_snapshot_id=snapshot_id,
+                request_id=request_id,
+            )
+            self._snapshot_portfolio(conn, ts_ms=as_of)
+
+        return result
+
+    # ── Position updates ────────────────────────────────────────
+
+    def _update_position(self, conn: Any, order: TradeOrder, shares: Decimal, price: Decimal) -> None:
+        row = conn.execute(
+            select(
+                paper_positions.c.shares,
+                paper_positions.c.avg_entry_price,
+                paper_positions.c.realized_pnl,
+            )
+            .where(paper_positions.c.agent_id == self.agent_id)
+            .where(paper_positions.c.token_id == order.token_id)
+        ).first()
+
         if order.side == Side.BUY:
-            self._set_cash(cash - total_cost - fee)
+            if row is None:
+                conn.execute(
+                    paper_positions.insert().values(
+                        agent_id=self.agent_id,
+                        token_id=order.token_id,
+                        market_id=order.market_id,
+                        market_question=order.market_question,
+                        outcome=order.outcome,
+                        shares=_q(shares),
+                        avg_entry_price=_q(price),
+                        realized_pnl=0.0,
+                    )
+                )
+            else:
+                old_shares = _d(row[0])
+                old_avg = _d(row[1])
+                new_shares = old_shares + shares
+                new_avg = (
+                    ((old_shares * old_avg) + (shares * price)) / new_shares if new_shares > 0 else _d(0)
+                )
+                conn.execute(
+                    update(paper_positions)
+                    .where(paper_positions.c.agent_id == self.agent_id)
+                    .where(paper_positions.c.token_id == order.token_id)
+                    .values(shares=_q(new_shares), avg_entry_price=_q(new_avg))
+                )
         else:
-            self._set_cash(cash + total_cost - fee)
-        self._update_position(order, total_shares, avg_price)
+            if row is None or _d(row[0]) <= 0:
+                return
+            old_shares = _d(row[0])
+            old_avg = _d(row[1])
+            old_realized = _d(row[2])
+            sell_shares = min(shares, old_shares)
+            realized = sell_shares * (price - old_avg)
+            new_shares = old_shares - sell_shares
+            new_realized = old_realized + realized
+            conn.execute(
+                update(paper_positions)
+                .where(paper_positions.c.agent_id == self.agent_id)
+                .where(paper_positions.c.token_id == order.token_id)
+                .values(
+                    shares=_q(new_shares if new_shares > Decimal("0.001") else _d(0)),
+                    realized_pnl=_q(new_realized),
+                )
+            )
 
-        status = OrderStatus.FILLED if remaining <= 0 else OrderStatus.PARTIALLY_FILLED
-        self._insert_trade(trade_id, order, avg_price, total_shares, total_cost, fee, status)
+    # ── Portfolio sampler ───────────────────────────────────────
 
-        return OrderResult(
-            order_id=trade_id,
-            status=status,
-            filled_price=avg_price,
-            filled_size=total_shares,
-            total_cost=total_cost,
+    def _snapshot_portfolio(self, conn: Any, *, ts_ms: int) -> None:
+        """Write a portfolio_snapshots row at the current transaction. Called on every trade
+        and (in prod) every 60s by the sampler loop."""
+        cash = self._get_cash(conn)
+        rows = conn.execute(
+            select(
+                paper_positions.c.shares, paper_positions.c.avg_entry_price, paper_positions.c.realized_pnl
+            ).where(paper_positions.c.agent_id == self.agent_id)
+        ).fetchall()
+        position_value = _d(0)
+        realized = _d(0)
+        for r in rows:
+            position_value += _d(r[0]) * _d(r[1])  # marked at entry; true marks come later
+            realized += _d(r[2])
+        conn.execute(
+            portfolio_snapshots.insert().values(
+                agent_id=self.agent_id,
+                ts_ms=ts_ms,
+                cash=_q(cash),
+                position_value=_q(position_value),
+                total_equity=_q(cash + position_value),
+                realized_pnl=_q(realized),
+                unrealized_pnl=0.0,
+            )
         )
 
-    # ── Position management ─────────────────────────────────────
+    def sample_portfolio(self) -> None:
+        """Public entry point for the 60s sampler loop. Wraps in its own transaction."""
+        with self.engine.begin() as conn:
+            self._snapshot_portfolio(conn, ts_ms=self.clock.now_ms())
 
-    def _update_position(self, order: TradeOrder, shares: float, price: float):
-        if self._backend == "supabase":
-            self._update_position_supabase(order, shares, price)
-        else:
-            self._update_position_sqlite(order, shares, price)
-
-    def _update_position_supabase(self, order: TradeOrder, shares: float, price: float):
-        row = self._sb.select_one("paper_positions", where={"token_id": order.token_id})
-
-        if order.side == Side.BUY:
-            if row:
-                old_shares = float(row["shares"])
-                old_avg = float(row["avg_entry_price"])
-                new_shares = old_shares + shares
-                new_avg = ((old_shares * old_avg) + (shares * price)) / new_shares if new_shares > 0 else 0
-                self._sb.update(
-                    "paper_positions",
-                    {"shares": new_shares, "avg_entry_price": new_avg},
-                    where={"token_id": order.token_id},
-                )
-            else:
-                self._sb.insert(
-                    "paper_positions",
-                    {
-                        "token_id": order.token_id,
-                        "market_id": order.market_id,
-                        "market_question": order.market_question,
-                        "outcome": order.outcome,
-                        "shares": shares,
-                        "avg_entry_price": price,
-                        "realized_pnl": 0,
-                    },
-                )
-        else:  # SELL
-            if not row or float(row["shares"]) <= 0:
-                return
-            old_shares = float(row["shares"])
-            old_avg = float(row["avg_entry_price"])
-            sell_shares = min(shares, old_shares)
-            realized = sell_shares * (price - old_avg)
-            new_shares = old_shares - sell_shares
-            old_realized = float(row["realized_pnl"])
-
-            if new_shares <= 0.001:
-                self._sb.update(
-                    "paper_positions",
-                    {"shares": 0, "realized_pnl": old_realized + realized},
-                    where={"token_id": order.token_id},
-                )
-            else:
-                self._sb.update(
-                    "paper_positions",
-                    {"shares": new_shares, "realized_pnl": old_realized + realized},
-                    where={"token_id": order.token_id},
-                )
-
-    def _update_position_sqlite(self, order: TradeOrder, shares: float, price: float):
-        row = self._conn.execute(
-            "SELECT * FROM paper_positions WHERE token_id = ?",
-            (order.token_id,),
-        ).fetchone()
-
-        if order.side == Side.BUY:
-            if row:
-                old_shares = row["shares"]
-                old_avg = row["avg_entry_price"]
-                new_shares = old_shares + shares
-                new_avg = ((old_shares * old_avg) + (shares * price)) / new_shares if new_shares > 0 else 0
-                self._conn.execute(
-                    "UPDATE paper_positions SET shares = ?, avg_entry_price = ? WHERE token_id = ?",
-                    (new_shares, new_avg, order.token_id),
-                )
-            else:
-                self._conn.execute(
-                    """INSERT INTO paper_positions
-                       (token_id, market_id, market_question, outcome, shares, avg_entry_price, realized_pnl)
-                       VALUES (?, ?, ?, ?, ?, ?, 0)""",
-                    (order.token_id, order.market_id, order.market_question, order.outcome, shares, price),
-                )
-        else:  # SELL
-            if not row or row["shares"] <= 0:
-                return
-            old_shares = row["shares"]
-            old_avg = row["avg_entry_price"]
-            sell_shares = min(shares, old_shares)
-            realized = sell_shares * (price - old_avg)
-            new_shares = old_shares - sell_shares
-
-            if new_shares <= 0.001:
-                self._conn.execute(
-                    "UPDATE paper_positions SET shares = 0, realized_pnl = realized_pnl + ? WHERE token_id = ?",
-                    (realized, order.token_id),
-                )
-            else:
-                self._conn.execute(
-                    "UPDATE paper_positions SET shares = ?, realized_pnl = realized_pnl + ? WHERE token_id = ?",
-                    (new_shares, realized, order.token_id),
-                )
-        self._conn.commit()
-
-    # ── Read operations ─────────────────────────────────────────
+    # ── Read API ────────────────────────────────────────────────
 
     def cancel_order(self, order_id: str) -> bool:
-        if self._backend == "supabase":
-            count = self._sb.delete("paper_open_orders", where={"id": order_id})
-            cancelled = count > 0
-        else:
-            result = self._conn.execute("DELETE FROM paper_open_orders WHERE id = ?", (order_id,))
-            self._conn.commit()
-            cancelled = result.rowcount > 0
-        if cancelled:
-            logger.info("PAPER cancelled order %s", order_id)
-        return cancelled
+        with self.engine.begin() as conn:
+            result = conn.execute(
+                paper_open_orders.delete()
+                .where(paper_open_orders.c.agent_id == self.agent_id)
+                .where(paper_open_orders.c.id == order_id)
+            )
+            return (result.rowcount or 0) > 0
 
     def get_positions(self) -> list[Position]:
-        if self._backend == "supabase":
-            rows = self._sb.select("paper_positions", where={"shares": "gt.0.001"})
-        else:
-            rows = self._conn.execute("SELECT * FROM paper_positions WHERE shares > 0.001").fetchall()
-
-        positions = []
+        with self.engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    select(paper_positions)
+                    .where(paper_positions.c.agent_id == self.agent_id)
+                    .where(paper_positions.c.shares > 0.001)
+                )
+                .mappings()
+                .all()
+            )
+        out: list[Position] = []
         for r in rows:
             current_price = None
             unrealized = 0.0
-            try:
-                snap = self.clob.get_price(r["token_id"], market_id=r["market_id"])
-                current_price = snap.midpoint
-                if current_price is not None:
-                    unrealized = float(r["shares"]) * (current_price - float(r["avg_entry_price"]))
-            except Exception as e:
-                logger.warning("Failed to fetch price for %s: %s", str(r["token_id"])[:30], e)
-
-            positions.append(
+            # Mark-to-market via live provider if available; tests use 0.
+            live = getattr(self.market_data, "_clob", None)
+            if live is not None:
+                try:
+                    snap = live.get_price(r["token_id"], market_id=r["market_id"])
+                    current_price = snap.midpoint
+                    if current_price is not None:
+                        unrealized = float(r["shares"]) * (current_price - float(r["avg_entry_price"]))
+                except Exception:
+                    pass
+            out.append(
                 Position(
                     token_id=r["token_id"],
                     market_id=r["market_id"],
@@ -593,25 +751,19 @@ class PaperTrader(TraderInterface):
                     unrealized_pnl=unrealized,
                 )
             )
-        return positions
+        return out
 
     def get_portfolio(self) -> PortfolioSummary:
-        cash = self._get_cash()
+        with self.engine.connect() as conn:
+            cash = float(self._get_cash(conn))
+            realized_row = conn.execute(
+                text("SELECT COALESCE(SUM(realized_pnl), 0) FROM paper_positions WHERE agent_id = :a"),
+                {"a": self.agent_id},
+            ).first()
+            total_realized = float(realized_row[0]) if realized_row else 0.0
         positions = self.get_positions()
-
         total_position_value = sum(p.shares * (p.current_price or p.avg_entry_price) for p in positions)
-        total_unrealized = sum(p.unrealized_pnl or 0 for p in positions)
-
-        # Sum realized PnL from ALL positions (including closed ones)
-        if self._backend == "supabase":
-            all_pos = self._sb.select("paper_positions")
-            total_realized = sum(float(r["realized_pnl"]) for r in all_pos)
-        else:
-            realized_row = self._conn.execute(
-                "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM paper_positions"
-            ).fetchone()
-            total_realized = realized_row["total"]
-
+        total_unrealized = sum(p.unrealized_pnl or 0.0 for p in positions)
         return PortfolioSummary(
             cash_balance=cash,
             positions=positions,
@@ -622,21 +774,30 @@ class PaperTrader(TraderInterface):
         )
 
     def get_balance(self) -> float:
-        return self._get_cash()
+        with self.engine.connect() as conn:
+            return float(self._get_cash(conn))
 
     def get_trade_history(self) -> list[dict]:
-        if self._backend == "supabase":
-            rows = self._sb.select("paper_trades", order="timestamp.desc")
-            return [dict(r) for r in rows]
-        else:
-            rows = self._conn.execute("SELECT * FROM paper_trades ORDER BY timestamp DESC").fetchall()
+        with self.engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    select(paper_trades)
+                    .where(paper_trades.c.agent_id == self.agent_id)
+                    .order_by(paper_trades.c.timestamp.desc())
+                )
+                .mappings()
+                .all()
+            )
             return [dict(r) for r in rows]
 
-    def check_open_orders(self):
-        if self._backend == "supabase":
-            rows = self._sb.select("paper_open_orders")
-        else:
-            rows = self._conn.execute("SELECT * FROM paper_open_orders").fetchall()
+    def check_open_orders(self) -> None:
+        """Re-check resting limit orders and attempt to fill any that are now executable."""
+        with self.engine.connect() as conn:
+            rows = (
+                conn.execute(select(paper_open_orders).where(paper_open_orders.c.agent_id == self.agent_id))
+                .mappings()
+                .all()
+            )
 
         for r in rows:
             order = TradeOrder(
@@ -649,40 +810,69 @@ class PaperTrader(TraderInterface):
                 price=float(r["price"]),
                 size=float(r["size"]) - float(r["filled_size"]),
             )
-            result = self._execute_limit_order(order)
+            result = self._execute_limit_order(order, request_id=str(uuid.uuid4()))
             if result.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED):
-                if self._backend == "supabase":
-                    self._sb.delete("paper_open_orders", where={"id": r["id"]})
-                else:
-                    self._conn.execute("DELETE FROM paper_open_orders WHERE id = ?", (r["id"],))
-                    self._conn.commit()
+                with self.engine.begin() as conn:
+                    conn.execute(
+                        paper_open_orders.delete()
+                        .where(paper_open_orders.c.id == r["id"])
+                        .where(paper_open_orders.c.agent_id == self.agent_id)
+                    )
 
-    def reset(self):
-        if self._backend == "supabase":
-            self._sb.delete_all("paper_trades", pk_column="id")
-            self._sb.delete_all("paper_positions", pk_column="token_id")
-            self._sb.delete_all("paper_open_orders", pk_column="id")
-            starting = self._sb.select_one("paper_config", where={"key": "starting_balance"})
-            balance = float(starting["value"]) if starting else 10_000.0
-            self._sb.update("paper_config", {"value": str(balance)}, where={"key": "cash_balance"})
-        else:
-            starting = self._conn.execute(
-                "SELECT value FROM paper_config WHERE key = 'starting_balance'"
-            ).fetchone()
-            balance = float(starting["value"]) if starting else 10_000.0
-            self._conn.executescript("""
-                DELETE FROM paper_trades;
-                DELETE FROM paper_positions;
-                DELETE FROM paper_open_orders;
-            """)
-            self._set_cash(balance)
-            self._conn.commit()
+    def reset(self) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(paper_trades.delete().where(paper_trades.c.agent_id == self.agent_id))
+            conn.execute(paper_positions.delete().where(paper_positions.c.agent_id == self.agent_id))
+            conn.execute(paper_open_orders.delete().where(paper_open_orders.c.agent_id == self.agent_id))
+            starting = conn.execute(
+                select(paper_config.c.value)
+                .where(paper_config.c.agent_id == self.agent_id)
+                .where(paper_config.c.key == "starting_balance")
+            ).first()
+            balance = _d(starting[0]) if starting else _d(10_000)
+            self._set_cash(conn, balance)
+        self._fee_bps_cache.clear()
 
-        self._fee_cache.clear()
-        logger.info("Paper trading reset. Balance: $%.2f", balance)
+    def close(self) -> None:
+        # Engine lifetime is managed by the caller (usually the process).
+        pass
 
-    def close(self):
-        if self._backend == "supabase" and self._sb:
-            self._sb.close()
-        elif self._conn:
-            self._conn.close()
+
+# ── Legacy constructor for the existing dashboard path ────────────────────
+
+
+def make_dashboard_trader(
+    db_path: str = "paper_trading.db",
+    starting_balance: float = 10_000.0,
+    clob=None,
+) -> PaperTrader:
+    """Backwards-compatible factory for the dashboard's single-tenant entry point.
+
+    Wires the dashboard up as `agent_id='__dashboard__'` so all existing call sites
+    continue to work unchanged post-Phase-1.
+    """
+    from polyclaw.config import settings
+
+    settings.enforce_production_guard()
+    if settings.db_backend == "supabase":
+        # Build a SQLAlchemy URL from the supabase project URL + password. Users who
+        # need this must set POLYCLAW_DATABASE_URL explicitly; Phase 1 doesn't add
+        # supabase URL parsing.
+        url = getattr(settings, "database_url", "") or ""
+        if not url:
+            raise RuntimeError(
+                "db_backend=supabase requires POLYCLAW_DATABASE_URL "
+                "(postgresql+psycopg://...) to be set. Phase 1 uses psycopg directly, "
+                "not PostgREST."
+            )
+    else:
+        url = f"sqlite:///{db_path}"
+
+    engine = make_engine(url)
+    market_data = LiveMarketDataProvider(clob=clob) if clob is not None else LiveMarketDataProvider()
+    return PaperTrader(
+        agent_id=DASHBOARD_AGENT_ID,
+        engine=engine,
+        starting_balance=starting_balance,
+        market_data=market_data,
+    )
