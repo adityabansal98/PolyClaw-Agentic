@@ -1,0 +1,32 @@
+# Dockerfile for the Phase 2c background worker.
+#
+# Runs `python -m polyclaw.workers.backtest_worker` which drives both the
+# backtest queue loop and the portfolio_snapshots sampler loop in one process.
+# Deployment target: Railway single always-on instance (PLAN.md §7.2c).
+#
+# Build: `docker build -f Dockerfile.worker -t polyclaw-worker .`
+# Run locally: `docker run --rm -e POLYCLAW_DATABASE_URL=... polyclaw-worker`
+
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Layer the dependency install so rebuilds don't repull every time src/ changes.
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --upgrade pip && pip install -e .
+
+# Healthcheck: the worker doesn't expose HTTP; we check the process is alive.
+# Railway's built-in process supervision handles restart on exit.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python -c "import polyclaw.workers.backtest_worker" || exit 1
+
+CMD ["python", "-m", "polyclaw.workers.backtest_worker"]
