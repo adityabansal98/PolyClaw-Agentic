@@ -51,9 +51,9 @@ def get_trader():
     global _trader
     if _trader is None:
         from polyclaw.config import settings
-        from polyclaw.trading.paper_trader import PaperTrader
+        from polyclaw.trading.paper_trader import make_dashboard_trader
 
-        _trader = PaperTrader(
+        _trader = make_dashboard_trader(
             db_path=settings.paper_db_path,
             starting_balance=settings.paper_starting_balance,
             clob=get_clob(),
