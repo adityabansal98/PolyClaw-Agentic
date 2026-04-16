@@ -43,3 +43,50 @@ def get_trade_history():
     if err:
         return err
     return jsonify({"items": _svc().get_trade_history(g.agent_id)})
+
+
+@api_v1.route("/agents/<agent_id>/equity-curve")
+def agent_equity_curve(agent_id: str):
+    """Public endpoint: return portfolio_snapshots time series for any agent.
+
+    Used by the frontend's AgentDetailPage to render interactive equity curves
+    without requiring a bearer token (the data is on the public leaderboard anyway).
+    """
+    from sqlalchemy import select
+
+    from polyclaw.storage.schema import portfolio_snapshots
+
+    svc = _svc()
+    with svc.engine.connect() as conn:
+        rows = (
+            conn.execute(
+                select(
+                    portfolio_snapshots.c.ts_ms,
+                    portfolio_snapshots.c.cash,
+                    portfolio_snapshots.c.position_value,
+                    portfolio_snapshots.c.total_equity,
+                    portfolio_snapshots.c.realized_pnl,
+                    portfolio_snapshots.c.unrealized_pnl,
+                )
+                .where(portfolio_snapshots.c.agent_id == agent_id)
+                .order_by(portfolio_snapshots.c.ts_ms)
+            )
+            .mappings()
+            .all()
+        )
+    return jsonify(
+        {
+            "agent_id": agent_id,
+            "points": [
+                {
+                    "ts_ms": int(r["ts_ms"]),
+                    "cash": float(r["cash"]),
+                    "position_value": float(r["position_value"]),
+                    "total_equity": float(r["total_equity"]),
+                    "realized_pnl": float(r["realized_pnl"]),
+                    "unrealized_pnl": float(r["unrealized_pnl"]),
+                }
+                for r in rows
+            ],
+        }
+    )
