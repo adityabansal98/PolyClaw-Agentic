@@ -1612,3 +1612,28 @@ textarea {
 
 /* Leaderboard page */
 .leaderboard-page { max-width: 1100px; }
+
+/* ── Dark mode is default (already dark). Light mode toggle ── */
+:root {
+  color-scheme: dark;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .app-shell { flex-direction: column; }
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 2px;
+    padding: 0.5rem;
+  }
+  .sidebar__logo { display: none; }
+  .sidebar__link { white-space: nowrap; padding: 6px 10px; font-size: 0.78rem; }
+  .workspace__content { padding: 1rem; }
+  .kpi-strip { gap: 0.5rem; }
+  .kpi-card { min-width: 100px; padding: 0.5rem; }
+  .agent-cards { grid-template-columns: 1fr; }
+  .arena-leaderboard { font-size: 0.75rem; }
+  .arena-leaderboard th, .arena-leaderboard td { padding: 4px 6px; }
+}

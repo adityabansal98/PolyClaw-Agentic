@@ -67,9 +67,47 @@ class TradingService:
         *,
         request_id: str | None = None,
     ) -> OrderResult:
-        """Submit an order on behalf of `agent_id`. Runs the risk gate (no-op today,
-        real in Phase 3), then dispatches to the cached PaperTrader for this agent."""
+        """Submit an order on behalf of `agent_id`. Runs the risk gate, then
+        dispatches to PaperTrader (paper/external tiers) or LiveTrader
+        (live_approved tier)."""
         self._check_risk(agent_id, order)
+
+        # Tier-aware dispatch: live_approved agents route to LiveTrader
+        from polyclaw.agents.registry import AgentRegistry
+
+        registry = AgentRegistry(self.engine, clock=self.clock)
+        record = registry.get(agent_id)
+        if record and record.tier.value == "live_approved":
+            return self._place_live_order(agent_id, order, request_id=request_id)
+
+        trader = self.portfolios.trader_for(agent_id)
+        return trader.place_order(order, request_id=request_id)
+
+    def _place_live_order(
+        self, agent_id: str, order: TradeOrder, *, request_id: str | None = None
+    ) -> OrderResult:
+        """Dispatch to LiveTrader for live-approved agents. Falls back to paper if
+        LiveTrader isn't configured (no API credentials)."""
+        try:
+            from polyclaw.trading.live_trader import LiveTrader
+
+            live = LiveTrader()
+            from polyclaw.config import settings
+
+            if settings.api_key and settings.api_secret and settings.api_passphrase:
+                live.set_creds(settings.api_key, settings.api_secret, settings.api_passphrase)
+                logger.info(
+                    "LIVE order for agent=%s: %s %s %s",
+                    agent_id,
+                    order.side.value,
+                    order.size,
+                    order.token_id[:20],
+                )
+                return live.place_order(order)
+        except Exception as e:
+            logger.warning("LiveTrader unavailable for %s, falling back to paper: %s", agent_id, e)
+
+        # Fallback: paper trade (still records the order for audit)
         trader = self.portfolios.trader_for(agent_id)
         return trader.place_order(order, request_id=request_id)
 
@@ -105,10 +143,16 @@ class TradingService:
         into a structured 403 with full context.
         """
         from polyclaw.agents.registry import AgentRegistry
-        from polyclaw.trading.risk_gate import check_risk
+        from polyclaw.trading.risk_gate import RiskGateError, check_risk
 
         registry = AgentRegistry(self.engine, clock=self.clock)
         record = registry.get(agent_id)
+        if record and record.status == "paused":
+            raise RiskGateError(
+                "risk_gate.agent_paused",
+                f"Agent {agent_id} is paused by safety circuit breaker. Check /api/v1/approvals for details.",
+                details={"agent_id": agent_id, "status": "paused"},
+            )
         tier = record.tier.value if record else "external_http"
 
         # Compute current position value to check max_position_size.

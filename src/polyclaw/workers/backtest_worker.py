@@ -287,6 +287,17 @@ class BacktestWorker:
         except Exception as e:
             logger.warning("season tick failed: %s", e)
 
+        # Safety circuit breakers for live-approved agents
+        try:
+            from polyclaw.trading.safety import SafetyMonitor
+
+            monitor = SafetyMonitor(self.engine, clock=self.clock)
+            paused = monitor.check_all_agents()
+            if paused:
+                logger.warning("safety paused agents: %s", paused)
+        except Exception as e:
+            logger.warning("safety check failed: %s", e)
+
 
 # ── CLI entrypoint ────────────────────────────────────────────────────────
 

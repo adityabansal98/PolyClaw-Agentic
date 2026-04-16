@@ -1,39 +1,10 @@
-// Phase 6 — Agent detail: equity curve, KPI strip, positions, trade history, risk metrics.
+// Phase 6 polish — Agent detail with interactive equity curve from portfolio_snapshots.
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, CartesianGrid } from 'recharts'
-
-type Portfolio = {
-  cash_balance: number
-  total_equity: number
-  total_position_value: number
-  total_realized_pnl: number
-  total_unrealized_pnl: number
-  positions: Position[]
-}
-
-type Position = {
-  token_id: string
-  market_id: string
-  market_question: string
-  outcome: string
-  shares: number
-  avg_entry_price: number
-  current_price: number | null
-  unrealized_pnl: number | null
-}
-
-type Trade = {
-  id: string
-  token_id: string
-  side: string
-  filled_price: number
-  filled_size: number
-  total_cost: number
-  fee: number
-  timestamp: number
-  outcome: string
-}
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  ReferenceLine,
+} from 'recharts'
 
 type LeaderboardEntry = {
   agent_id: string
@@ -49,37 +20,37 @@ type LeaderboardEntry = {
   rank: number
 }
 
+type EquityPoint = {
+  ts_ms: number
+  cash: number
+  position_value: number
+  total_equity: number
+  realized_pnl: number
+  unrealized_pnl: number
+}
+
 function fmtUsd(n: number) {
   return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function fmtPct(n: number) {
-  const sign = n >= 0 ? '+' : ''
-  return `${sign}${(n * 100).toFixed(2)}%`
+  return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(2)}%`
 }
 
 function fmtDate(ms: number) {
   return new Date(ms).toLocaleDateString()
 }
 
-function fmtDateTime(ms: number) {
-  return new Date(ms).toLocaleString()
-}
-
 export function AgentDetailPage() {
   const { agentId } = useParams<{ agentId: string }>()
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null)
-  const [trades, setTrades] = useState<Trade[]>([])
   const [metrics, setMetrics] = useState<LeaderboardEntry | null>(null)
+  const [curve, setCurve] = useState<EquityPoint[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
 
   useEffect(() => {
     if (!agentId) return
     setLoading(true)
-    setError('')
 
-    // Fetch leaderboard for this agent's composite metrics
     const fetchMetrics = fetch('/api/v1/leaderboard')
       .then(r => r.json())
       .then(data => {
@@ -87,78 +58,120 @@ export function AgentDetailPage() {
         if (entry) setMetrics(entry)
       })
 
-    // We can't fetch portfolio/trades without a bearer token in the browser.
-    // For now, show what we have from the public leaderboard. The full agent
-    // detail with positions/trades requires auth — Phase 7 will add a session
-    // cookie or token-in-URL flow for the dashboard.
-    Promise.all([fetchMetrics])
-      .catch(e => setError(String(e)))
+    const fetchCurve = fetch(`/api/v1/agents/${agentId}/equity-curve`)
+      .then(r => r.json())
+      .then(data => setCurve(data.points || []))
+
+    Promise.all([fetchMetrics, fetchCurve])
+      .catch(() => {})
       .finally(() => setLoading(false))
   }, [agentId])
 
   if (loading) return <p className="muted">Loading agent details...</p>
-  if (error) return <div className="arena-error">{error}</div>
+
+  const startingBalance = curve.length > 0 ? curve[0].total_equity : (metrics?.total_equity || 10000)
 
   return (
     <div className="agent-detail">
-      <Link to="/leaderboard" className="back-link">Back to Leaderboard</Link>
+      <Link to="/leaderboard" className="back-link">&larr; Back to Leaderboard</Link>
 
       <h1>{metrics?.name || agentId}</h1>
       <p className="muted">
-        <code>{metrics?.tier}</code> | Rank #{metrics?.rank} | {metrics?.trade_count} trades
+        <code>{metrics?.tier}</code> &middot; Rank #{metrics?.rank} &middot; {metrics?.trade_count} trades
       </p>
 
       {/* KPI Strip */}
       <div className="kpi-strip">
-        <div className="kpi-card">
-          <div className="kpi-card__label">Total Equity</div>
-          <div className="kpi-card__value">{fmtUsd(metrics?.total_equity || 0)}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-card__label">Return</div>
-          <div className={`kpi-card__value ${(metrics?.return_pct || 0) >= 0 ? 'positive' : 'negative'}`}>
-            {fmtPct(metrics?.return_pct || 0)}
-          </div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-card__label">Sharpe Ratio</div>
-          <div className="kpi-card__value">{metrics?.sharpe?.toFixed(2) ?? 'N/A'}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-card__label">Max Drawdown</div>
-          <div className="kpi-card__value negative">
-            {metrics?.max_drawdown ? `-${(metrics.max_drawdown * 100).toFixed(2)}%` : '0%'}
-          </div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-card__label">Calmar</div>
-          <div className="kpi-card__value">{metrics?.calmar?.toFixed(2) ?? 'N/A'}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-card__label">Win Rate</div>
-          <div className="kpi-card__value">{((metrics?.win_rate || 0) * 100).toFixed(1)}%</div>
-        </div>
+        <KpiCard label="Total Equity" value={fmtUsd(metrics?.total_equity || 0)} />
+        <KpiCard label="Return" value={fmtPct(metrics?.return_pct || 0)}
+                 className={(metrics?.return_pct || 0) >= 0 ? 'positive' : 'negative'} />
+        <KpiCard label="Sharpe Ratio" value={metrics?.sharpe?.toFixed(2) ?? 'N/A'} />
+        <KpiCard label="Max Drawdown"
+                 value={metrics?.max_drawdown ? `-${(metrics.max_drawdown * 100).toFixed(2)}%` : '0%'}
+                 className="negative" />
+        <KpiCard label="Calmar" value={metrics?.calmar?.toFixed(2) ?? 'N/A'} />
+        <KpiCard label="Win Rate" value={`${((metrics?.win_rate || 0) * 100).toFixed(1)}%`} />
       </div>
 
-      {/* Equity Curve Placeholder */}
+      {/* Equity Curve */}
       <div className="chart-section">
         <h2>Equity Curve</h2>
-        <p className="muted">
-          Interactive equity curve with trade markers requires authenticated portfolio_snapshots access.
-          Coming in Phase 7 (dashboard auth flow). For now, see the backtest explorer for strategy-level curves.
-        </p>
+        {curve.length > 1 ? (
+          <ResponsiveContainer width="100%" height={350}>
+            <AreaChart data={curve} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
+              <defs>
+                <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#818cf8" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#818cf8" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis
+                dataKey="ts_ms"
+                tickFormatter={fmtDate}
+                stroke="#6b7280"
+                fontSize={11}
+              />
+              <YAxis
+                tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`}
+                stroke="#6b7280"
+                fontSize={11}
+              />
+              <Tooltip
+                formatter={(value: number) => [fmtUsd(value), 'Equity']}
+                labelFormatter={(label: number) => new Date(label).toLocaleString()}
+                contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
+              />
+              <ReferenceLine y={startingBalance} stroke="#6b7280" strokeDasharray="3 3" />
+              <Area
+                type="monotone"
+                dataKey="total_equity"
+                stroke="#818cf8"
+                fill="url(#equityGrad)"
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="muted">No portfolio snapshots yet. Trade to generate data.</p>
+        )}
       </div>
 
-      {/* Approve for Live button (Phase 7) */}
+      {/* Cash vs Position breakdown */}
+      {curve.length > 1 && (
+        <div className="chart-section">
+          <h2>Cash vs Position Value</h2>
+          <ResponsiveContainer width="100%" height={250}>
+            <AreaChart data={curve} margin={{ top: 10, right: 20, bottom: 10, left: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="ts_ms" tickFormatter={fmtDate} stroke="#6b7280" fontSize={11} />
+              <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`} stroke="#6b7280" fontSize={11} />
+              <Tooltip
+                contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
+                formatter={(value: number, name: string) => [fmtUsd(value), name]}
+                labelFormatter={(label: number) => new Date(label).toLocaleString()}
+              />
+              <Area type="monotone" dataKey="cash" stackId="1" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
+              <Area type="monotone" dataKey="position_value" stackId="1" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Actions */}
       <div className="approval-section">
-        <h2>Live Trading Approval</h2>
-        <p className="muted">
-          Once you're satisfied with this agent's paper performance, you can approve it for live trading.
-        </p>
-        <Link to="/approvals" className="btn btn-primary">
-          Go to Approvals Dashboard
-        </Link>
+        <h2>Live Trading</h2>
+        <Link to="/approvals" className="btn btn-primary">Go to Approvals Dashboard</Link>
       </div>
+    </div>
+  )
+}
+
+function KpiCard({ label, value, className = '' }: { label: string; value: string; className?: string }) {
+  return (
+    <div className="kpi-card">
+      <div className="kpi-card__label">{label}</div>
+      <div className={`kpi-card__value ${className}`}>{value}</div>
     </div>
   )
 }
