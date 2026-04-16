@@ -854,20 +854,24 @@ def make_dashboard_service(
     The agent row is seeded up front via `AgentRegistry.create_agent` so the paper_config
     balance is authoritative.
     """
+    import os
+
     from polyclaw.agents.registry import AgentRegistry, AgentTier
     from polyclaw.config import settings
     from polyclaw.trading.service import TradingService
 
     settings.enforce_production_guard()
-    if settings.db_backend == "supabase":
-        url = getattr(settings, "database_url", "") or ""
+    database_url = getattr(settings, "database_url", "") or os.environ.get("POLYCLAW_DATABASE_URL", "")
+    if settings.db_backend == "supabase" or database_url:
+        url = database_url
         if not url:
             raise RuntimeError(
-                "db_backend=supabase requires POLYCLAW_DATABASE_URL "
-                "(postgresql+psycopg://...) to be set. Phase 1 uses psycopg directly, "
-                "not PostgREST."
+                "db_backend=supabase requires POLYCLAW_DATABASE_URL (postgresql+psycopg://...) to be set."
             )
     else:
+        # On Vercel (serverless), CWD is read-only; /tmp is the only writable path.
+        if os.environ.get("VERCEL"):
+            db_path = f"/tmp/{db_path}"
         url = f"sqlite:///{db_path}"
 
     engine = make_engine(url)
@@ -889,17 +893,22 @@ def make_dashboard_trader(
 ) -> PaperTrader:
     """Back-compat for tests + CLI paper-reset. Returns a bare PaperTrader bound to
     the dashboard agent. Production call sites should use `make_dashboard_service`."""
+    import os
+
     from polyclaw.agents.registry import AgentRegistry, AgentTier
     from polyclaw.config import settings
 
     settings.enforce_production_guard()
-    if settings.db_backend == "supabase":
-        url = getattr(settings, "database_url", "") or ""
+    database_url = getattr(settings, "database_url", "") or os.environ.get("POLYCLAW_DATABASE_URL", "")
+    if settings.db_backend == "supabase" or database_url:
+        url = database_url
         if not url:
             raise RuntimeError(
                 "db_backend=supabase requires POLYCLAW_DATABASE_URL (postgresql+psycopg://...) to be set."
             )
     else:
+        if os.environ.get("VERCEL"):
+            db_path = f"/tmp/{db_path}"
         url = f"sqlite:///{db_path}"
 
     engine = make_engine(url)
