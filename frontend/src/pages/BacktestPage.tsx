@@ -2,6 +2,8 @@ import { useState } from 'react'
 import type { BacktestResult, BacktestMetrics, BacktestTrade } from '../lib/types'
 import { EquityCurveChart, DrawdownChart, TradePnlChart } from '../components/InteractiveChart'
 import { KpiStripEnhanced } from '../components/KpiCardEnhanced'
+import { getDemoVersion } from '../lib/demoMode'
+import { getDemoBacktestResult } from '../lib/demoData'
 
 const API = ''
 
@@ -35,8 +37,9 @@ function formatDateTime(ts: number): string {
 }
 
 export function BacktestPage() {
-  const [strategy, setStrategy] = useState('threshold')
-  const [markets, setMarkets] = useState('')
+  const version = getDemoVersion()
+  const [strategy, setStrategy] = useState('momentum')
+  const [markets, setMarkets] = useState(version ? 'NBA' : '')
   const [cash, setCash] = useState(10000)
   const [fidelity, setFidelity] = useState(60)
   const [running, setRunning] = useState(false)
@@ -48,6 +51,16 @@ export function BacktestPage() {
     setRunning(true)
     setError('')
     setResult(null)
+
+    // In demo mode, return pre-baked results after a brief delay
+    if (version) {
+      await new Promise(r => setTimeout(r, 800))
+      const demo = getDemoBacktestResult()
+      demo.strategy_name = strategy
+      setResult(demo)
+      setRunning(false)
+      return
+    }
 
     try {
       const res = await fetch(`${API}/api/backtest`, {

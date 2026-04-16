@@ -1,33 +1,13 @@
 // Phase 6 polish — Agent detail with interactive equity curve from portfolio_snapshots.
+// Demo mode: renders mock data when ?demo=hw6|hw7|hw8 is in URL.
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   ReferenceLine,
 } from 'recharts'
-
-type LeaderboardEntry = {
-  agent_id: string
-  name: string
-  tier: string
-  total_equity: number
-  return_pct: number
-  sharpe: number | null
-  max_drawdown: number
-  calmar: number | null
-  win_rate: number
-  trade_count: number
-  rank: number
-}
-
-type EquityPoint = {
-  ts_ms: number
-  cash: number
-  position_value: number
-  total_equity: number
-  realized_pnl: number
-  unrealized_pnl: number
-}
+import { getDemoVersion } from '../lib/demoMode'
+import { getDemoAgents, getDemoEquityCurve, type LeaderboardRow, type EquityPoint } from '../lib/demoData'
 
 function fmtUsd(n: number) {
   return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -43,18 +23,32 @@ function fmtDate(ms: number) {
 
 export function AgentDetailPage() {
   const { agentId } = useParams<{ agentId: string }>()
-  const [metrics, setMetrics] = useState<LeaderboardEntry | null>(null)
+  const [searchParams] = useSearchParams()
+  const [metrics, setMetrics] = useState<LeaderboardRow | null>(null)
   const [curve, setCurve] = useState<EquityPoint[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Get demo version from either URL search params or global
+  const urlVersion = searchParams.get('demo') as 'hw6' | 'hw7' | 'hw8' | null
+  const version = urlVersion || getDemoVersion()
 
   useEffect(() => {
     if (!agentId) return
     setLoading(true)
 
+    if (version) {
+      const agents = getDemoAgents(version)
+      const entry = agents.find(a => a.agent_id === agentId)
+      if (entry) setMetrics(entry)
+      setCurve(getDemoEquityCurve(version, agentId))
+      setLoading(false)
+      return
+    }
+
     const fetchMetrics = fetch('/api/v1/leaderboard')
       .then(r => r.json())
       .then(data => {
-        const entry = (data.items || []).find((e: LeaderboardEntry) => e.agent_id === agentId)
+        const entry = (data.items || []).find((e: LeaderboardRow) => e.agent_id === agentId)
         if (entry) setMetrics(entry)
       })
 
@@ -65,20 +59,33 @@ export function AgentDetailPage() {
     Promise.all([fetchMetrics, fetchCurve])
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [agentId])
+  }, [agentId, version])
 
   if (loading) return <p className="muted">Loading agent details...</p>
 
-  const startingBalance = curve.length > 0 ? curve[0].total_equity : (metrics?.total_equity || 10000)
+  const startingBalance = 10000
+
+  const backLink = version ? `/leaderboard?demo=${version}` : '/leaderboard'
 
   return (
     <div className="agent-detail">
-      <Link to="/leaderboard" className="back-link">&larr; Back to Leaderboard</Link>
+      <Link to={backLink} className="back-link">&larr; Back to Leaderboard</Link>
 
-      <h1>{metrics?.name || agentId}</h1>
+      <h1>
+        {metrics?.name || agentId}
+        {metrics?.status === 'paused' && <span className="status-pill status-pill--paused" style={{ marginLeft: 12, fontSize: '0.6em', verticalAlign: 'middle' }}>PAUSED</span>}
+      </h1>
       <p className="muted">
         <code>{metrics?.tier}</code> &middot; Rank #{metrics?.rank} &middot; {metrics?.trade_count} trades
+        {metrics?.strategy && <> &middot; Strategy: <code>{metrics.strategy}</code></>}
       </p>
+
+      {/* Pause reason banner */}
+      {metrics?.pause_reason && (
+        <div className="pause-banner">
+          <strong>Safety Breaker Triggered:</strong> {metrics.pause_reason}
+        </div>
+      )}
 
       {/* KPI Strip */}
       <div className="kpi-strip">
@@ -118,8 +125,8 @@ export function AgentDetailPage() {
                 fontSize={11}
               />
               <Tooltip
-                formatter={(value: number) => [fmtUsd(value), 'Equity']}
-                labelFormatter={(label: number) => new Date(label).toLocaleString()}
+                formatter={(value: any) => [fmtUsd(Number(value)), 'Equity']}
+                labelFormatter={(label: any) => new Date(Number(label)).toLocaleString()}
                 contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
               />
               <ReferenceLine y={startingBalance} stroke="#6b7280" strokeDasharray="3 3" />
@@ -148,8 +155,8 @@ export function AgentDetailPage() {
               <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`} stroke="#6b7280" fontSize={11} />
               <Tooltip
                 contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 8 }}
-                formatter={(value: number, name: string) => [fmtUsd(value), name]}
-                labelFormatter={(label: number) => new Date(label).toLocaleString()}
+                formatter={(value: any, name: any) => [fmtUsd(Number(value)), String(name)]}
+                labelFormatter={(label: any) => new Date(Number(label)).toLocaleString()}
               />
               <Area type="monotone" dataKey="cash" stackId="1" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
               <Area type="monotone" dataKey="position_value" stackId="1" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
@@ -161,7 +168,7 @@ export function AgentDetailPage() {
       {/* Actions */}
       <div className="approval-section">
         <h2>Live Trading</h2>
-        <Link to="/approvals" className="btn btn-primary">Go to Approvals Dashboard</Link>
+        <Link to={`/approvals${version ? `?demo=${version}` : ''}`} className="btn btn-primary">Go to Approvals Dashboard</Link>
       </div>
     </div>
   )

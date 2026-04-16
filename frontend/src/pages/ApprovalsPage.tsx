@@ -1,20 +1,8 @@
 // Phase 7 — Human approval dashboard for live trading promotion.
-//
-// Lists pending and resolved approval requests. Humans review agent track records
-// and either approve (with signed confirmation + USDC limit) or reject.
+// Demo mode: renders mock data when ?demo=hw6|hw7|hw8 is in URL.
 import { useEffect, useState } from 'react'
-
-type ApprovalRequest = {
-  id: number
-  agent_id: string
-  status: 'pending' | 'approved' | 'rejected' | 'revoked'
-  requested_at_ms: number
-  requested_by: string
-  message: string
-  reviewed_at_ms: number | null
-  confirmation_text: string | null
-  max_live_usdc: number | null
-}
+import { getDemoVersion } from '../lib/demoMode'
+import { getDemoApprovals, type ApprovalRequest } from '../lib/demoData'
 
 function fmtDate(ms: number | null) {
   if (!ms) return '\u2014'
@@ -47,8 +35,14 @@ function StatusBadge({ status }: { status: string }) {
 export function ApprovalsPage() {
   const [requests, setRequests] = useState<ApprovalRequest[]>([])
   const [loading, setLoading] = useState(true)
+  const version = getDemoVersion()
 
   function refresh() {
+    if (version) {
+      setRequests(getDemoApprovals(version))
+      setLoading(false)
+      return
+    }
     fetch('/api/v1/approvals')
       .then(r => r.json())
       .then(data => setRequests(data.items || []))
@@ -56,7 +50,7 @@ export function ApprovalsPage() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { refresh() }, [version])
 
   const pending = requests.filter(r => r.status === 'pending')
   const resolved = requests.filter(r => r.status !== 'pending')
@@ -83,10 +77,18 @@ export function ApprovalsPage() {
           </div>
           <p className="muted">Requested {fmtDate(r.requested_at_ms)} by {r.requested_by}</p>
           {r.message && <p className="approval-card__message">"{r.message}"</p>}
-          <p className="muted">
-            To approve: POST /api/v1/agents/{r.agent_id}/approve-live with confirmation_text + max_live_usdc.
-            To reject: use the kill switch DELETE /api/v1/agents/{r.agent_id}/live.
-          </p>
+          {version && (
+            <div className="approval-card__actions">
+              <button className="btn btn-primary" disabled>Approve</button>
+              <button className="btn btn-danger" disabled>Reject</button>
+            </div>
+          )}
+          {!version && (
+            <p className="muted">
+              To approve: POST /api/v1/agents/{r.agent_id}/approve-live with confirmation_text + max_live_usdc.
+              To reject: use the kill switch DELETE /api/v1/agents/{r.agent_id}/live.
+            </p>
+          )}
         </div>
       ))}
 
@@ -99,7 +101,7 @@ export function ApprovalsPage() {
             <th>Requested</th>
             <th>Reviewed</th>
             <th>Limit</th>
-            <th>Confirmation</th>
+            <th>Reason</th>
           </tr>
         </thead>
         <tbody>
@@ -111,7 +113,7 @@ export function ApprovalsPage() {
               <td className="muted">{fmtDate(r.reviewed_at_ms)}</td>
               <td>{r.max_live_usdc ? `$${r.max_live_usdc.toLocaleString()}` : '\u2014'}</td>
               <td className="muted" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {r.confirmation_text || '\u2014'}
+                {r.review_message || r.confirmation_text || '\u2014'}
               </td>
             </tr>
           ))}

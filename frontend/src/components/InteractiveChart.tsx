@@ -18,9 +18,6 @@ function fmtUsd(n: number) {
   if (Math.abs(n) >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K'
   return '$' + n.toFixed(0)
 }
-function fmtPct(n: number) {
-  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%'
-}
 
 /* ── Equity Curve ── */
 
@@ -91,10 +88,10 @@ export function EquityCurveChart({ curve, startingCash, trades }: EquityCurvePro
               fontSize: 12,
               color: '#e6edf3',
             }}
-            labelFormatter={(label: string) => label}
-            formatter={(value: number, name: string) => {
-              if (name === 'equity') return [fmtUsd(value), 'Portfolio']
-              if (name === 'benchmark') return [fmtUsd(value), 'Buy & Hold']
+            labelFormatter={(label: any) => String(label)}
+            formatter={(value: any, name: any) => {
+              if (name === 'equity') return [fmtUsd(Number(value)), 'Portfolio']
+              if (name === 'benchmark') return [fmtUsd(Number(value)), 'Buy & Hold']
               return [value, name]
             }}
           />
@@ -181,7 +178,7 @@ export function DrawdownChart({ curve }: DrawdownProps) {
               fontSize: 12,
               color: '#e6edf3',
             }}
-            formatter={(value: number) => [value.toFixed(2) + '%', 'Drawdown']}
+            formatter={(value: any) => [Number(value).toFixed(2) + '%', 'Drawdown']}
           />
           <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" />
           <Area
@@ -288,8 +285,8 @@ export function TradePnlChart({ trades }: TradePnlProps) {
               fontSize: 12,
               color: '#e6edf3',
             }}
-            formatter={(value: number) => [fmtUsd(value), 'PnL']}
-            labelFormatter={(label: number) => {
+            formatter={(value: any) => [fmtUsd(Number(value)), 'PnL']}
+            labelFormatter={(label: any) => {
               const d = data[label - 1]
               if (!d) return `Trade #${label}`
               return `${d.question}\nEntry: $${d.entry.toFixed(3)} → Exit: $${d.exit.toFixed(3)}\nHeld: ${d.held}`

@@ -14,7 +14,7 @@ interface Props {
   startingCash: number
 }
 
-export function KpiStripEnhanced({ metrics, startingCash }: Props) {
+export function KpiStripEnhanced({ metrics, startingCash: _startingCash }: Props) {
   const returnColor = metrics.total_return_pct >= 0 ? '#3fb950' : '#f85149'
   const sharpe = metrics.sharpe_ratio
 
