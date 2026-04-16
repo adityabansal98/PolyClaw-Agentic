@@ -1493,3 +1493,122 @@ textarea {
   padding: 0.2rem 0.5rem;
   display: inline-block;
 }
+
+/* ── Phase 6+7: sidebar layout + new pages ── */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 200px;
+  background: #111827;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.sidebar__logo {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #818cf8;
+  margin-bottom: 1.5rem;
+  letter-spacing: -0.5px;
+}
+
+.sidebar__link {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: #9ca3af;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar__link:hover { background: #1f2937; color: #e5e7eb; }
+.sidebar__link.active { background: #1e1b4b; color: #818cf8; }
+
+.workspace {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.workspace__content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Dashboard agent cards */
+.agent-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.agent-card {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 1rem;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s;
+}
+
+.agent-card:hover { border-color: #818cf8; }
+
+.agent-card__name { font-weight: 600; font-size: 1rem; margin-bottom: 4px; }
+.agent-card__tier { font-size: 0.75rem; color: #9ca3af; margin-bottom: 8px; }
+.agent-card__equity { font-size: 1.2rem; font-weight: 700; }
+.agent-card__return { font-size: 0.9rem; margin-top: 4px; }
+.agent-card__return.positive { color: #10b981; }
+.agent-card__return.negative { color: #ef4444; }
+
+/* KPI strip */
+.kpi-strip {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1.5rem 0;
+}
+
+.kpi-card {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  min-width: 120px;
+}
+
+.kpi-card__label { font-size: 0.72rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; }
+.kpi-card__value { font-size: 1.1rem; font-weight: 600; margin-top: 4px; }
+.kpi-card__value.positive { color: #10b981; }
+.kpi-card__value.negative { color: #ef4444; }
+
+/* Agent detail */
+.agent-detail { max-width: 900px; }
+.back-link { color: #818cf8; font-size: 0.85rem; text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+.chart-section { margin: 2rem 0; padding: 1.5rem; background: #1f2937; border-radius: 8px; border: 1px solid #374151; }
+.approval-section { margin: 2rem 0; }
+
+/* Button */
+.btn { display: inline-block; padding: 8px 16px; border-radius: 6px; font-weight: 600; text-decoration: none; font-size: 0.85rem; cursor: pointer; border: none; }
+.btn-primary { background: #818cf8; color: #fff; }
+.btn-primary:hover { background: #6366f1; }
+
+/* Approval cards */
+.approval-card { background: #1f2937; border: 1px solid #374151; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.approval-card--pending { border-left: 3px solid #f59e0b; }
+.approval-card__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+.approval-card__message { font-style: italic; color: #d1d5db; }
+
+/* Leaderboard page */
+.leaderboard-page { max-width: 1100px; }

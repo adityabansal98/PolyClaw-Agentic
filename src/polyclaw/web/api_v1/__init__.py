@@ -87,6 +87,7 @@ def _handle_unhandled(exc):
 # Each sub-module does `from polyclaw.web.api_v1 import api_v1` and decorates
 # its routes with `@api_v1.route(...)`.
 
+from polyclaw.web.api_v1 import approvals as _approvals  # noqa: F401, E402
 from polyclaw.web.api_v1 import backtest as _backtest  # noqa: F401, E402
 from polyclaw.web.api_v1 import leaderboard as _leaderboard  # noqa: F401, E402
 from polyclaw.web.api_v1 import orders as _orders  # noqa: F401, E402
