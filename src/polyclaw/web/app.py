@@ -10,6 +10,11 @@ FRONTEND_BUILD_DIR = STATIC_DIR / "app"
 
 app = Flask(__name__, static_folder=str(STATIC_DIR))
 
+# ── Register the /api/v1 Blueprint (Phase 3a) ────────────────────────────
+from polyclaw.web.api_v1 import api_v1  # noqa: E402
+
+app.register_blueprint(api_v1)
+
 # Lazy singletons
 _gamma = None
 _clob = None
@@ -364,120 +369,9 @@ def _arena_gone_agent_bets(agent_name: str):
     return _arena_gone()
 
 
-# ── /api/v1/leaderboard — Phase 2b scaffold ───────────────────────────────
-# Minimum-viable leaderboard that reads from portfolio_snapshots. The full
-# composite-metric version (Sharpe, drawdown, Calmar) arrives in Phase 4 with
-# the Season engine. Phase 2b ships this just so the frontend AgentArenaPage
-# has somewhere to point.
-
-
-@app.route("/api/v1/leaderboard")
-def api_v1_leaderboard():
-    from sqlalchemy import desc, select
-
-    from polyclaw.storage.schema import agents as agents_tbl
-    from polyclaw.storage.schema import portfolio_snapshots
-
-    svc = get_trading_service()
-    engine = svc.engine
-
-    items: list[dict] = []
-    with engine.connect() as conn:
-        agent_rows = conn.execute(select(agents_tbl)).mappings().all()
-        for row in agent_rows:
-            latest = (
-                conn.execute(
-                    select(
-                        portfolio_snapshots.c.ts_ms,
-                        portfolio_snapshots.c.cash,
-                        portfolio_snapshots.c.position_value,
-                        portfolio_snapshots.c.total_equity,
-                        portfolio_snapshots.c.realized_pnl,
-                    )
-                    .where(portfolio_snapshots.c.agent_id == row["id"])
-                    .order_by(desc(portfolio_snapshots.c.ts_ms))
-                    .limit(1)
-                )
-                .mappings()
-                .first()
-            )
-            starting = float(row["starting_balance"])
-            equity = float(latest["total_equity"]) if latest else starting
-            items.append(
-                {
-                    "agent_id": row["id"],
-                    "name": row["name"],
-                    "tier": row["tier"],
-                    "total_equity": equity,
-                    "return_pct": (equity - starting) / starting if starting > 0 else 0.0,
-                    "last_update_ms": int(latest["ts_ms"]) if latest else None,
-                }
-            )
-    items.sort(key=lambda x: x["return_pct"], reverse=True)
-    return jsonify(
-        {
-            "items": items,
-            "legacy_note": (
-                "Seasons before 2026-05 ran on the legacy toy-coin arena mechanic and "
-                "are not comparable to real paper-trading seasons. See "
-                "docs/legacy-arena-history.json."
-            ),
-        }
-    )
-
-
-# ── /api/v1/backtest — Phase 2c async queue ───────────────────────────────
-# Enqueue + poll routes. The worker loop (polyclaw.workers.backtest_worker) runs
-# in a separate process (Railway in prod, docker-compose locally) and picks runs
-# off via SKIP LOCKED. This route is just the producer + status peek.
-
-
-def _get_backtest_queue():
-    """Build a BacktestQueue bound to the process-wide TradingService engine."""
-    from polyclaw.workers.backtest_queue import BacktestQueue
-
-    svc = get_trading_service()
-    return BacktestQueue(svc.engine, clock=svc.clock)
-
-
-@app.route("/api/v1/backtest", methods=["POST"])
-def api_v1_backtest_enqueue():
-    from polyclaw.storage.schema import DASHBOARD_AGENT_ID
-    from polyclaw.workers.backtest_queue import QuotaExceeded
-
-    payload = request.json or {}
-    # Phase 2c uses the dashboard agent as the default caller. Phase 3 replaces
-    # this with the auth middleware's resolved bearer token → agent_id.
-    agent_id = payload.get("agent_id", DASHBOARD_AGENT_ID)
-    strategy = str(payload.get("strategy", "")).strip()
-    markets = payload.get("markets") or []
-    if not strategy:
-        return jsonify({"error": {"code": "bad_request", "message": "strategy is required"}}), 400
-    if not isinstance(markets, list) or not markets:
-        return jsonify({"error": {"code": "bad_request", "message": "markets must be a non-empty list"}}), 400
-
-    queue = _get_backtest_queue()
-    try:
-        run_id = queue.enqueue(
-            agent_id=agent_id,
-            strategy=strategy,
-            params=payload.get("params") or {},
-            markets=markets,
-            fidelity=int(payload.get("fidelity", 60)),
-            cash=float(payload.get("cash", 10_000.0)),
-        )
-    except QuotaExceeded as exc:
-        return jsonify({"error": {"code": exc.code, "message": str(exc), "details": exc.details}}), 429
-    return jsonify({"backtest_id": run_id, "status": "queued"}), 202
-
-
-@app.route("/api/v1/backtest/<run_id>")
-def api_v1_backtest_get(run_id: str):
-    queue = _get_backtest_queue()
-    row = queue.get(run_id)
-    if row is None:
-        return jsonify({"error": {"code": "not_found", "message": "unknown backtest_id"}}), 404
-    return jsonify(row)
+# ── /api/v1/* routes are now in the api_v1 Blueprint (Phase 3a) ──────────
+# leaderboard, backtest, portfolio, orders, quota, explain — all live in
+# src/polyclaw/web/api_v1/*.py and are registered via app.register_blueprint above.
 
 
 @app.route("/<path:full_path>")
