@@ -166,9 +166,80 @@ class BacktestWorker:
                 )
                 return
 
-            engine = BacktestEngine(starting_cash=claim.cash)
-            result = engine.run(strategy, market_data)
-            self.queue.mark_finished(claim.id, self._serialize_result(result))
+            # Check for advanced options in params
+            walk_forward_opts = claim.params.pop("walk_forward", None) if claim.params else None
+            monte_carlo_opts = claim.params.pop("monte_carlo", None) if claim.params else None
+            optimize_opts = claim.params.pop("optimize", None) if claim.params else None
+
+            if optimize_opts:
+                from polyclaw.backtest.advanced import run_param_optimization
+
+                opt_result = run_param_optimization(
+                    claim.strategy,
+                    market_data,
+                    param_grid=optimize_opts.get("param_grid", {}),
+                    starting_cash=claim.cash,
+                    metric=optimize_opts.get("metric", "sharpe"),
+                )
+                output: dict[str, Any] = {
+                    "type": "optimization",
+                    "total_combos": opt_result.total_combos,
+                    "best": {
+                        "params": opt_result.best.params,
+                        "return_pct": opt_result.best.return_pct,
+                        "sharpe": opt_result.best.sharpe,
+                    }
+                    if opt_result.best
+                    else None,
+                    "heatmap_data": opt_result.heatmap_data[:200],
+                }
+                self.queue.mark_finished(claim.id, output)
+            else:
+                engine = BacktestEngine(starting_cash=claim.cash)
+                result = engine.run(strategy, market_data)
+                output = self._serialize_result(result)
+
+                if walk_forward_opts:
+                    from polyclaw.backtest.advanced import run_walk_forward
+
+                    wf = run_walk_forward(
+                        claim.strategy,
+                        market_data,
+                        params=claim.params,
+                        n_splits=walk_forward_opts.get("n_splits", 5),
+                        train_pct=walk_forward_opts.get("train_pct", 0.7),
+                        starting_cash=claim.cash,
+                    )
+                    output["walk_forward"] = {
+                        "splits": [
+                            {"train_return": s.train_return, "test_return": s.test_return} for s in wf.splits
+                        ],
+                        "aggregate_train_return": wf.aggregate_train_return,
+                        "aggregate_test_return": wf.aggregate_test_return,
+                        "overfit_score": wf.overfit_score,
+                        "is_overfitting": wf.is_overfitting,
+                    }
+
+                if monte_carlo_opts:
+                    from polyclaw.backtest.advanced import run_monte_carlo
+
+                    mc = run_monte_carlo(
+                        result,
+                        n_simulations=monte_carlo_opts.get("n_simulations", 1000),
+                        ruin_threshold_pct=monte_carlo_opts.get("ruin_threshold_pct", -50.0),
+                        seed=monte_carlo_opts.get("seed"),
+                    )
+                    output["monte_carlo"] = {
+                        "n_simulations": mc.n_simulations,
+                        "median_return": mc.median_return,
+                        "p5_return": mc.p5_return,
+                        "p95_return": mc.p95_return,
+                        "mean_return": mc.mean_return,
+                        "probability_of_ruin": mc.probability_of_ruin,
+                        "distribution": mc.distribution[:200],  # trim for DB
+                    }
+
+                self.queue.mark_finished(claim.id, output)
             logger.info("finished backtest %s", claim.id)
 
         except Exception as e:
