@@ -3,16 +3,14 @@
   "buildCommand": "cd frontend && npm install && npm run vercel-build",
   "outputDirectory": "frontend/dist",
   "installCommand": "echo 'skip global install'",
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/index.py" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.py" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "functions": {
     "api/index.py": {
       "runtime": "@vercel/python@4.6.0",
       "includeFiles": "src/**/*.py"
     }
-  },
-  "crons": []
+  }
 }
