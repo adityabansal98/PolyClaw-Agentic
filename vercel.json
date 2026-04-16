@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "buildCommand": "cd frontend && npm install && npm run vercel-build",
+  "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
   "installCommand": "echo 'skip global install'",
+  "framework": null,
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.py" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/(.*)", "destination": "/api/index.py" }
   ],
   "functions": {
     "api/index.py": {
