@@ -189,6 +189,50 @@ agent_keys = Table(
 )
 
 
+# ── Phase 4: season engine ───────────────────────────────────────────────
+
+
+seasons = Table(
+    "seasons",
+    metadata,
+    Column("id", String, primary_key=True),
+    Column("name", String, nullable=False),
+    Column("starts_at_ms", BigInteger, nullable=False),
+    Column("ends_at_ms", BigInteger, nullable=False),
+    Column("starting_balance", Float, nullable=False, server_default="10000"),
+    # JSON string — e.g. {"categories": ["NBA"]} or null for all markets
+    Column("market_universe_filter", String),
+    # "paper" | "live"
+    Column("mode", String, nullable=False, server_default="paper"),
+    Column("allowed_lookback_days", Integer, server_default="30"),
+    Column("max_order_rate_per_min", Integer, server_default="10"),
+    Column("max_position_size_usdc", Float, server_default="2000"),
+    Column("registration_open", Integer, nullable=False, server_default="1"),
+    # "draft" | "open_registration" | "running" | "settling" | "finalized"
+    Column("status", String, nullable=False, server_default="draft"),
+    Index("idx_seasons_status", "status"),
+)
+
+
+season_results = Table(
+    "season_results",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("season_id", String, nullable=False),
+    Column("agent_id", String, nullable=False),
+    Column("final_equity", Float, nullable=False),
+    Column("total_return", Float, nullable=False),
+    Column("sharpe", Float),
+    Column("max_drawdown", Float),
+    Column("calmar", Float),
+    Column("win_rate", Float),
+    Column("trade_count", Integer, nullable=False, server_default="0"),
+    Column("rank", Integer),
+    UniqueConstraint("season_id", "agent_id", name="uq_season_results_season_agent"),
+    Index("idx_season_results_season_rank", "season_id", "rank"),
+)
+
+
 # ── Phase 2a: historical tick store ──────────────────────────────────────
 
 

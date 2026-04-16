@@ -92,3 +92,4 @@ from polyclaw.web.api_v1 import leaderboard as _leaderboard  # noqa: F401, E402
 from polyclaw.web.api_v1 import orders as _orders  # noqa: F401, E402
 from polyclaw.web.api_v1 import portfolio as _portfolio  # noqa: F401, E402
 from polyclaw.web.api_v1 import quota as _quota  # noqa: F401, E402
+from polyclaw.web.api_v1 import seasons as _seasons  # noqa: F401, E402

@@ -207,6 +207,15 @@ class BacktestWorker:
             except Exception as e:
                 logger.warning("sampler skip agent=%s: %s", agent_id, e)
 
+        # Season lifecycle auto-tick (start/finalize based on clock)
+        try:
+            from polyclaw.seasons.engine import SeasonEngine
+
+            se = SeasonEngine(self.engine, clock=self.clock)
+            se.tick()
+        except Exception as e:
+            logger.warning("season tick failed: %s", e)
+
 
 # ── CLI entrypoint ────────────────────────────────────────────────────────
 
