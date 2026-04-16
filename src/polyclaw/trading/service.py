@@ -94,15 +94,25 @@ class TradingService:
         self.portfolios.trader_for(agent_id).reset()
         self.portfolios.forget(agent_id)
 
-    # ── RiskGate hook (Phase 3) ────────────────────────────────
+    # ── RiskGate ────────────────────────────────────────────────
 
     def _check_risk(self, agent_id: str, order: TradeOrder) -> None:
-        """RiskGate hook. No-op in Phase 2b — Phase 3 replaces the body with real
-        checks (per-tier order size caps, rate limits, max position size, etc.) and
-        raises a structured RiskGateError that the HTTP middleware turns into the
-        `risk_gate.*` error code family.
+        """Validate an order against the risk gate. Raises `RiskGateError` on violation.
 
-        Kept as a stub so the call site is stable and tests can monkeypatch in real
-        checks without changing the TradingService API surface.
+        Per-tier limits are enforced here — both HTTP callers and in-process agents
+        hit this because they all go through TradingService (premise P1). The error
+        carries a machine-readable `code` (`risk_gate.*`) that the HTTP layer turns
+        into a structured 403 with full context.
         """
-        _ = agent_id, order  # intentionally unused until Phase 3
+        from polyclaw.agents.registry import AgentRegistry
+        from polyclaw.trading.risk_gate import check_risk
+
+        registry = AgentRegistry(self.engine, clock=self.clock)
+        record = registry.get(agent_id)
+        tier = record.tier.value if record else "external_http"
+
+        # Compute current position value to check max_position_size.
+        positions = self.get_positions(agent_id)
+        current_position_usdc = sum(p.shares * (p.current_price or p.avg_entry_price) for p in positions)
+
+        check_risk(order, agent_tier=tier, current_position_usdc=current_position_usdc)
