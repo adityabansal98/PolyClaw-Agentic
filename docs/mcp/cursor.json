@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "polyclaw": {
+      "command": "python",
+      "args": ["-m", "polyclaw.mcp.server"],
+      "cwd": "/path/to/polyclaw-agentic",
+      "env": {
+        "POLYCLAW_MCP_BASE_URL": "http://localhost:5000",
+        "POLYCLAW_MCP_BEARER_TOKEN": "YOUR_BEARER_TOKEN_HERE"
+      }
+    }
+  }
+}
