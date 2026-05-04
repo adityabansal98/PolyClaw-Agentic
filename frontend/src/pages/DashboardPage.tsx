@@ -20,9 +20,9 @@ type AgentSummary = {
 function VersionBadge({ version }: { version: DemoVersion }) {
   if (!version) return null
   const labels: Record<string, string> = {
-    hw6: 'HW6: MVP Demo',
-    hw7: 'HW7: 6-Agent Experiments',
-    hw8: 'HW8: 30-Agent Scaled Test',
+    hw6: 'Platform Tour',
+    hw7: 'Strategy Lab — 6 Agents',
+    hw8: 'Stress Test Season — 30 Agents',
   }
   return (
     <div className="demo-badge">

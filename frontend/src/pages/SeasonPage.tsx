@@ -17,7 +17,7 @@ export function SeasonPage() {
     return (
       <div className="season-page">
         <h1>Season</h1>
-        <p className="muted">Season data is available in HW8 demo mode.</p>
+        <p className="muted">Season data is available in the Stress Test Season view.</p>
       </div>
     )
   }

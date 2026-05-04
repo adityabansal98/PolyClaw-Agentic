@@ -12,7 +12,7 @@ export function ExperimentsPage() {
     return (
       <div className="experiments-page">
         <h1>Experiments</h1>
-        <p className="muted">Experiment results are available in HW7 and HW8 demo modes.</p>
+        <p className="muted">Experiment results are available in the Strategy Lab and Stress Test Season views.</p>
       </div>
     )
   }

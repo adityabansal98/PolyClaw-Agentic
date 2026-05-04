@@ -18,13 +18,6 @@ function DemoNav() {
   return (
     <nav className="sidebar">
       <div className="sidebar__logo">PolyClaw</div>
-      {version && (
-        <div className="sidebar__demo-label">
-          {version === 'hw6' && 'MVP Demo'}
-          {version === 'hw7' && 'HW7: Experiments'}
-          {version === 'hw8' && 'HW8: Scaled'}
-        </div>
-      )}
       <NavLink to={`/${q}`} className="sidebar__link" end>Dashboard</NavLink>
       <NavLink to={`/leaderboard${q}`} className="sidebar__link">Leaderboard</NavLink>
       <NavLink to={`/backtest${q}`} className="sidebar__link">Backtest</NavLink>
@@ -36,12 +29,12 @@ function DemoNav() {
       )}
       <NavLink to={`/approvals${q}`} className="sidebar__link">Approvals</NavLink>
 
-      {/* Version switcher — always visible (HW8 is the default landing view) */}
+      {/* View switcher — always visible. The 30-agent stress test is the default. */}
       <div className="sidebar__switcher">
         <div className="sidebar__switcher-label">View</div>
-        <a href="/?demo=hw6" className={`sidebar__switch-btn ${version === 'hw6' ? 'active' : ''}`}>HW6 — MVP</a>
-        <a href="/?demo=hw7" className={`sidebar__switch-btn ${version === 'hw7' ? 'active' : ''}`}>HW7 — Experiments</a>
-        <a href="/?demo=hw8" className={`sidebar__switch-btn ${version === 'hw8' ? 'active' : ''}`}>HW8 — Scaled (default)</a>
+        <a href="/?demo=hw6" className={`sidebar__switch-btn ${version === 'hw6' ? 'active' : ''}`}>Platform Tour</a>
+        <a href="/?demo=hw7" className={`sidebar__switch-btn ${version === 'hw7' ? 'active' : ''}`}>Strategy Lab</a>
+        <a href="/?demo=hw8" className={`sidebar__switch-btn ${version === 'hw8' ? 'active' : ''}`}>Stress Test Season</a>
         <a href="/?demo=none" className={`sidebar__switch-btn ${version === null ? 'active' : ''}`}>Live API</a>
       </div>
     </nav>
