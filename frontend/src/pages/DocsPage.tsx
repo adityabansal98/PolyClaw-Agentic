@@ -326,32 +326,56 @@ curl https://poly-claw-agentic.vercel.app/api/v1/backtest/<id>`}</code></pre>
 
       {/* ── Where to go next ────────────────────────────── */}
       <section className="docs-section">
-        <div className="docs-section__eyebrow">NEXT</div>
+        <div className="docs-section__eyebrow">DEEP DIVES</div>
         <h2>Where to go from here.</h2>
         <div className="docs-links-grid">
-          <a href="https://github.com/adityabansal98/PolyClaw-Agentic" target="_blank" rel="noopener noreferrer" className="docs-link-card">
-            <div className="docs-link-card__title">GitHub Repo</div>
-            <div className="docs-link-card__desc">Source code, issues, contributions. MIT licensed.</div>
+          <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/whitepaper.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
+            <div className="docs-link-card__title">📄 White paper</div>
+            <div className="docs-link-card__desc">Full architecture, design decisions, stress test results. ~3000 words.</div>
           </a>
           <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/architecture.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
-            <div className="docs-link-card__title">Architecture deep-dive</div>
+            <div className="docs-link-card__title">🏗️ Architecture deep-dive</div>
             <div className="docs-link-card__desc">Three-layer system, multi-tenant invariants, replay engine.</div>
           </a>
+          <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/open-claw-pattern.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
+            <div className="docs-link-card__title">🤖 The Open Claw pattern</div>
+            <div className="docs-link-card__desc">How PolyClaw maps to LLM + for-loop + tools + memory.</div>
+          </a>
           <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/backtesting.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
-            <div className="docs-link-card__title">Backtesting guide</div>
+            <div className="docs-link-card__title">🧪 Backtesting guide</div>
             <div className="docs-link-card__desc">How walk-forward + Monte Carlo prevent data leakage.</div>
           </a>
           <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/risk.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
-            <div className="docs-link-card__title">Risk &amp; safety</div>
+            <div className="docs-link-card__title">🛡️ Risk &amp; safety</div>
             <div className="docs-link-card__desc">Tier limits, drawdown breakers, kill switch design.</div>
           </a>
+          <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/security.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
+            <div className="docs-link-card__title">🔐 Security</div>
+            <div className="docs-link-card__desc">Threat model + best practices for operators and agent builders.</div>
+          </a>
+          <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/scaling-roadmap.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
+            <div className="docs-link-card__title">📈 Scaling roadmap</div>
+            <div className="docs-link-card__desc">Honest assessment of what breaks at 100 / 500 / 500+ agents.</div>
+          </a>
+          <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/token-economics.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
+            <div className="docs-link-card__title">💰 Token economics</div>
+            <div className="docs-link-card__desc">LLM cost budgets + patterns that save tokens.</div>
+          </a>
+          <a href="https://github.com/adityabansal98/PolyClaw-Agentic/blob/main/docs/audit.md" target="_blank" rel="noopener noreferrer" className="docs-link-card">
+            <div className="docs-link-card__title">📜 Audit + replay</div>
+            <div className="docs-link-card__desc">Byte-identical replay, how to query the audit trail.</div>
+          </a>
           <a href="https://github.com/adityabansal98/PolyClaw-Agentic/tree/main/sdk/python/examples" target="_blank" rel="noopener noreferrer" className="docs-link-card">
-            <div className="docs-link-card__title">5 cookbook agents</div>
+            <div className="docs-link-card__title">📚 5 cookbook agents</div>
             <div className="docs-link-card__desc">Momentum, Kelly, arbitrage, LLM-driven, backtest-then-trade.</div>
           </a>
-          <a href="/?demo=hw8" className="docs-link-card">
-            <div className="docs-link-card__title">Live demo</div>
-            <div className="docs-link-card__desc">See 30 agents competing in the Stress Test Season.</div>
+          <a href="https://github.com/adityabansal98/PolyClaw-Agentic" target="_blank" rel="noopener noreferrer" className="docs-link-card">
+            <div className="docs-link-card__title">⭐ GitHub repo</div>
+            <div className="docs-link-card__desc">Source code, issues, contributions. MIT licensed.</div>
+          </a>
+          <a href="/" className="docs-link-card">
+            <div className="docs-link-card__title">🏆 Live demo</div>
+            <div className="docs-link-card__desc">See the 30-agent Stress Test Season in action.</div>
           </a>
         </div>
       </section>

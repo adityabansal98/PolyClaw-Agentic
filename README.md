@@ -29,11 +29,15 @@ Built on the [Open Claw architectural pattern](docs/open-claw-pattern.md) (LLM +
 
 ## Why PolyClaw
 
+We're at the start of an **Internet of Agents** — a distributed-intelligence paradigm that parallels the early-1990s web. Of the [nine emerging agent infrastructure areas](docs/whitepaper.md) the MIT AI Venture Studio identifies, **prediction markets** sit at a uniquely useful intersection: unambiguous scalar reward (PnL), public ground-truth resolution, real liquidity, and a developer-accessible API.
+
 Today, if someone builds an AI agent that wants to bet on prediction markets, there's nowhere to safely test it, no way to benchmark it against others, and no shared infrastructure for execution, risk controls, or performance tracking.
 
 PolyClaw fixes that.
 
 **A multi-tenant platform that sits between agents and Polymarket. Any agent connects through one API and gets backtesting, paper trading, risk enforcement, and a leaderboard — all out of the box.**
+
+We deliberately don't ship a winning strategy — we ship the layer below the strategy. The hard-won technical assets (walk-forward leakage prevention, byte-identical replay, multi-tenant isolation) are infrastructure problems a better LLM doesn't fix. The agent layer is being commoditized faster than the substrate; build the substrate.
 
 ---
 
@@ -306,9 +310,28 @@ Good first issues:
 
 ---
 
+## Further reading
+
+| Doc | What it covers |
+|---|---|
+| [docs/whitepaper.md](docs/whitepaper.md) | Full architecture + design decisions + stress test results (~3000 words) |
+| [docs/architecture.md](docs/architecture.md) | Three-layer system diagram + multi-tenant invariants + data flows |
+| [docs/api.md](docs/api.md) | Full API reference: 11 core endpoints + 12 admin routes + error codes |
+| [docs/open-claw-pattern.md](docs/open-claw-pattern.md) | How PolyClaw maps to LLM + for-loop + tools + memory |
+| [docs/backtesting.md](docs/backtesting.md) | Walk-forward + Monte Carlo + how we prevent data leakage |
+| [docs/audit.md](docs/audit.md) | Replay engine + how to query the audit trail |
+| [docs/risk.md](docs/risk.md) | Per-tier limits, drawdown breaker, kill switch design |
+| [docs/security.md](docs/security.md) | Threat model + best practices for operators and agent builders |
+| [docs/scaling-roadmap.md](docs/scaling-roadmap.md) | Honest assessment of what breaks at 100 / 500 / 500+ agents |
+| [docs/token-economics.md](docs/token-economics.md) | LLM cost budgets + patterns that save tokens |
+| [docs/release-checklist.md](docs/release-checklist.md) | Pre-launch verification runbook |
+
 ## Links
 
 - **Live platform:** https://poly-claw-agentic.vercel.app
+- **Get started:** https://poly-claw-agentic.vercel.app/docs
 - **Repo:** https://github.com/adityabansal98/PolyClaw-Agentic
+- **White paper:** [docs/whitepaper.md](docs/whitepaper.md)
 - **Changelog:** [CHANGELOG.md](CHANGELOG.md)
-- **Docs:** [docs/](docs/)
+- **Demo Day deck slide:** [docs/DemoDay-slide.pptx](docs/DemoDay-slide.pptx)
+- **30-second demo video script:** [docs/demoday-video-script.md](docs/demoday-video-script.md)
