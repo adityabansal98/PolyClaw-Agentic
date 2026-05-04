@@ -9,6 +9,7 @@ import { BacktestPage } from './pages/BacktestPage'
 import { ApprovalsPage } from './pages/ApprovalsPage'
 import { ExperimentsPage } from './pages/ExperimentsPage'
 import { SeasonPage } from './pages/SeasonPage'
+import { DocsPage } from './pages/DocsPage'
 import { getDemoVersion } from './lib/demoMode'
 
 function DemoNav() {
@@ -19,6 +20,7 @@ function DemoNav() {
     <nav className="sidebar">
       <div className="sidebar__logo">PolyClaw</div>
       <NavLink to={`/${q}`} className="sidebar__link" end>Dashboard</NavLink>
+      <NavLink to="/docs" className="sidebar__link sidebar__link--accent">Get Started</NavLink>
       <NavLink to={`/leaderboard${q}`} className="sidebar__link">Leaderboard</NavLink>
       <NavLink to={`/backtest${q}`} className="sidebar__link">Backtest</NavLink>
       {(version === 'hw7' || version === 'hw8') && (
@@ -56,6 +58,7 @@ function App() {
               <Route path="/approvals" element={<ApprovalsPage />} />
               <Route path="/experiments" element={<ExperimentsPage />} />
               <Route path="/season" element={<SeasonPage />} />
+              <Route path="/docs" element={<DocsPage />} />
             </Routes>
           </main>
         </div>
