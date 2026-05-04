@@ -30,15 +30,6 @@ function DemoNav() {
         <NavLink to={`/season${q}`} className="sidebar__link">Season</NavLink>
       )}
       <NavLink to={`/approvals${q}`} className="sidebar__link">Approvals</NavLink>
-
-      {/* View switcher — always visible. The 30-agent stress test is the default. */}
-      <div className="sidebar__switcher">
-        <div className="sidebar__switcher-label">View</div>
-        <a href="/?demo=hw6" className={`sidebar__switch-btn ${version === 'hw6' ? 'active' : ''}`}>Platform Tour</a>
-        <a href="/?demo=hw7" className={`sidebar__switch-btn ${version === 'hw7' ? 'active' : ''}`}>Strategy Lab</a>
-        <a href="/?demo=hw8" className={`sidebar__switch-btn ${version === 'hw8' ? 'active' : ''}`}>Stress Test Season</a>
-        <a href="/?demo=none" className={`sidebar__switch-btn ${version === null ? 'active' : ''}`}>Live API</a>
-      </div>
     </nav>
   )
 }

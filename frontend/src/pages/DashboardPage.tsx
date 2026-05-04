@@ -17,18 +17,10 @@ type AgentSummary = {
   pause_reason?: string
 }
 
-function VersionBadge({ version }: { version: DemoVersion }) {
-  if (!version) return null
-  const labels: Record<string, string> = {
-    hw6: 'Platform Tour',
-    hw7: 'Strategy Lab — 6 Agents',
-    hw8: 'Stress Test Season — 30 Agents',
-  }
-  return (
-    <div className="demo-badge">
-      {labels[version]}
-    </div>
-  )
+function VersionBadge({ version: _version }: { version: DemoVersion }) {
+  // Badge removed: there's no longer a "view" concept exposed in the UI.
+  // The dashboard shows the same content for everyone.
+  return null
 }
 
 export function DashboardPage() {
