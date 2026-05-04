@@ -201,12 +201,32 @@ def test_readme_has_github_and_website_links():
 
 # ─── Live production smoke tests (network-marked, opt-in) ─────────────────
 
+# All network tests share a User-Agent + a "Vercel bot-protection" skip helper.
+# Vercel intercepts requests it deems bot-like with an HTTP 403 + HTML body
+# containing "Vercel Security Checkpoint". Those are environmental, not real
+# failures — a real browser bypasses them via cookies the test runner can't get.
+
+import urllib.error
+import urllib.request
+
+_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+
+def _get(url: str, *, timeout: int = 10):
+    """GET with browser User-Agent. Skips if Vercel security checkpoint intercepts."""
+    req = urllib.request.Request(url, headers={"User-Agent": _UA})
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        if e.code == 403 and b"Vercel Security Checkpoint" in (e.read() or b""):
+            pytest.skip(f"Vercel bot-protection intercepted {url}; verify in a real browser")
+        raise
+
+
 @pytest.mark.network
 def test_production_homepage_responds():
     """Production homepage must respond 200."""
-    import urllib.request
-    req = urllib.request.Request(PRODUCTION_URL, headers={"User-Agent": "polyclaw-test"})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with _get(PRODUCTION_URL) as r:
         assert r.status == 200
 
 
@@ -214,9 +234,7 @@ def test_production_homepage_responds():
 def test_production_healthz():
     """Production /healthz must return ok."""
     import json
-    import urllib.request
-    req = urllib.request.Request(f"{PRODUCTION_URL}/healthz", headers={"User-Agent": "polyclaw-test"})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with _get(f"{PRODUCTION_URL}/healthz") as r:
         assert r.status == 200
         body = json.loads(r.read())
         assert body == {"status": "ok"}
@@ -225,13 +243,8 @@ def test_production_healthz():
 @pytest.mark.network
 def test_production_demo_urls_load():
     """All three demo URLs must return 200."""
-    import urllib.request
     for v in ("hw6", "hw7", "hw8"):
-        req = urllib.request.Request(
-            f"{PRODUCTION_URL}/?demo={v}",
-            headers={"User-Agent": "polyclaw-test"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with _get(f"{PRODUCTION_URL}/?demo={v}") as r:
             assert r.status == 200, f"demo={v} returned {r.status}"
 
 
@@ -239,12 +252,7 @@ def test_production_demo_urls_load():
 def test_production_leaderboard_returns_data():
     """Live leaderboard must return at least 1 agent."""
     import json
-    import urllib.request
-    req = urllib.request.Request(
-        f"{PRODUCTION_URL}/api/v1/leaderboard",
-        headers={"User-Agent": "polyclaw-test"},
-    )
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with _get(f"{PRODUCTION_URL}/api/v1/leaderboard") as r:
         assert r.status == 200
         body = json.loads(r.read())
         items = body.get("items", [])
