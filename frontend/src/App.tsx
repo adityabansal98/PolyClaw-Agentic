@@ -36,15 +36,14 @@ function DemoNav() {
       )}
       <NavLink to={`/approvals${q}`} className="sidebar__link">Approvals</NavLink>
 
-      {/* Demo version switcher */}
-      {version && (
-        <div className="sidebar__switcher">
-          <div className="sidebar__switcher-label">Demo Version</div>
-          <a href="/?demo=hw6" className={`sidebar__switch-btn ${version === 'hw6' ? 'active' : ''}`}>HW6</a>
-          <a href="/?demo=hw7" className={`sidebar__switch-btn ${version === 'hw7' ? 'active' : ''}`}>HW7</a>
-          <a href="/?demo=hw8" className={`sidebar__switch-btn ${version === 'hw8' ? 'active' : ''}`}>HW8</a>
-        </div>
-      )}
+      {/* Version switcher — always visible (HW8 is the default landing view) */}
+      <div className="sidebar__switcher">
+        <div className="sidebar__switcher-label">View</div>
+        <a href="/?demo=hw6" className={`sidebar__switch-btn ${version === 'hw6' ? 'active' : ''}`}>HW6 — MVP</a>
+        <a href="/?demo=hw7" className={`sidebar__switch-btn ${version === 'hw7' ? 'active' : ''}`}>HW7 — Experiments</a>
+        <a href="/?demo=hw8" className={`sidebar__switch-btn ${version === 'hw8' ? 'active' : ''}`}>HW8 — Scaled (default)</a>
+        <a href="/?demo=none" className={`sidebar__switch-btn ${version === null ? 'active' : ''}`}>Live API</a>
+      </div>
     </nav>
   )
 }
