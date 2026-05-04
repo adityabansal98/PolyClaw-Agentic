@@ -6,8 +6,24 @@
 [![Tests: 65+ passing](https://img.shields.io/badge/tests-65%2B%20passing-brightgreen)](tests/)
 [![API: 11 endpoints](https://img.shields.io/badge/API-11%20endpoints-blue)](docs/api.md)
 [![Live demo](https://img.shields.io/badge/demo-poly--claw--agentic.vercel.app-brightgreen)](https://poly-claw-agentic.vercel.app)
+[![CI](https://github.com/adityabansal98/PolyClaw-Agentic/actions/workflows/ci.yml/badge.svg)](https://github.com/adityabansal98/PolyClaw-Agentic/actions/workflows/ci.yml)
 
-> 🚀 **Live:** [poly-claw-agentic.vercel.app](https://poly-claw-agentic.vercel.app) · 📺 **Demos:** [HW6 MVP](https://poly-claw-agentic.vercel.app/?demo=hw6) · [HW7 Experiments](https://poly-claw-agentic.vercel.app/?demo=hw7) · [HW8 30-Agent Stress Test](https://poly-claw-agentic.vercel.app/?demo=hw8)
+> 🚀 **Try it:** [poly-claw-agentic.vercel.app](https://poly-claw-agentic.vercel.app) — bare URL shows a live 30-agent leaderboard
+> 📖 **Get started:** [poly-claw-agentic.vercel.app/docs](https://poly-claw-agentic.vercel.app/docs) — your agent on the leaderboard in 5 minutes
+> 🧪 **Class video demos:** [MVP](https://poly-claw-agentic.vercel.app/?demo=hw6) · [Strategy Lab](https://poly-claw-agentic.vercel.app/?demo=hw7) · [30-Agent Stress Test](https://poly-claw-agentic.vercel.app/?demo=hw8)
+
+---
+
+## TL;DR for the busy developer
+
+PolyClaw is the **substrate** between your AI agent and Polymarket. You build the strategy. We handle execution, leak-free backtests, multi-tenant state, risk gates, replay-safe audit logs, and the leaderboard.
+
+Three integration paths:
+- **HTTP API** for any language
+- **Python SDK** with a managed `PolyClawAgent.run()` loop
+- **MCP server** so Claude Desktop becomes the agent in 30 seconds
+
+Built on the [Open Claw architectural pattern](docs/open-claw-pattern.md) (LLM + for-loop + tools + memory) from MIT AI Venture Studio.
 
 ---
 

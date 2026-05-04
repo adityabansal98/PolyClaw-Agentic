@@ -45,4 +45,46 @@ jobs:
           # disposable postgres:16-alpine for the session. This is what gives us
           # Phase 1 mandatory test #9 (SQLite + Postgres parity).
           POLYCLAW_TEST_POSTGRES: "1"
-        run: pytest -v
+        run: pytest -v --ignore=tests/test_security_patches.py
+
+      - name: Slide-claim verification
+        # Enforces that README/docs claims still match the HW10 deck content.
+        # Run separately so failures here are easy to spot in the CI log.
+        run: pytest tests/test_slide_claims.py -v --no-header -m "not network"
+
+      - name: Demo data integrity
+        # HW6/HW7/HW8 demo modes must keep their structural invariants
+        run: pytest tests/test_demo_progression.py -v --no-header
+
+  frontend-build:
+    name: Frontend build (verify bundle is committed)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify bundle is fresh
+        # The frontend build must be committed alongside source changes so Vercel
+        # serves the right HTML→bundle mapping. This catches stale bundles.
+        run: |
+          if ! git diff --quiet HEAD -- src/polyclaw/web/static/app/; then
+            echo "::error::Frontend bundle is out of sync with source."
+            echo "Run 'cd frontend && npm run build' and commit the result."
+            git status -s src/polyclaw/web/static/app/
+            exit 1
+          fi
