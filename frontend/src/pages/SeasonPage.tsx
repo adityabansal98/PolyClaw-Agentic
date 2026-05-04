@@ -309,17 +309,22 @@ export function SeasonPage() {
         <h2>Bottlenecks & Performance</h2>
         <div className="bottleneck-grid">
           <div className="bottleneck-item">
-            <h3>Portfolio Sampler</h3>
-            <p>60s cadence across 30 agents. SQLite: 4.2s/tick (file lock serialized writes). Postgres: 0.8s/tick.</p>
-            <div className="bottleneck-item__fix">Fix: Switched worker to Postgres-only. Bottleneck eliminated.</div>
+            <h3>Database under load</h3>
+            <p>Platform slowed down when 30 agents traded at once — had to switch databases mid-project. SQLite was 4.2s per portfolio sampler tick (file lock serialized all 30 snapshot writes); Postgres dropped that to 0.8s.</p>
+            <div className="bottleneck-item__fix">Fix: dropped SQLite from the worker hot path. Postgres-only for production. SQLite still works for dev.</div>
           </div>
           <div className="bottleneck-item">
-            <h3>Backtest Queue Depth</h3>
-            <p>30 agents x walk-forward + Monte Carlo = ~22 min queue depth with single worker.</p>
-            <div className="bottleneck-item__fix">Fix needed: Parallelize workers (multiple Railway instances claiming from same SKIP LOCKED queue).</div>
+            <h3>Backtest queue throughput</h3>
+            <p>Designed for single-threaded backtesting — didn't plan for 30 agents queuing at once. With one worker, 30 × walk-forward + Monte Carlo jobs backed up to ~22 minutes queue depth.</p>
+            <div className="bottleneck-item__fix">Fix needed: horizontal workers (multiple Railway instances claiming from the same SKIP LOCKED queue). Architecture supports it; just needs to be turned on.</div>
           </div>
           <div className="bottleneck-item">
-            <h3>Resource Usage</h3>
+            <h3>Strategy quality monitoring</h3>
+            <p>Some agents ran bad strategies and the platform had no way to flag it early. Composite leaderboard surfaces it after the fact, but there's no mid-season "this agent looks suspect" alert.</p>
+            <div className="bottleneck-item__fix">Fix needed: real-time strategy degradation detection (rolling Sharpe drop, drawdown velocity, signal entropy collapse).</div>
+          </div>
+          <div className="bottleneck-item">
+            <h3>Resource usage</h3>
             <p>~6,000 paper trades + ~60 backtest runs. Postgres storage: ~2MB. Worker CPU: under 20% on Railway $5/mo.</p>
             <div className="bottleneck-item__fix">Main cost driver: CLOB API calls for orderbook fetches (~4,000/day at 60s cadence).</div>
           </div>

@@ -16,15 +16,22 @@ def _get_queue() -> BacktestQueue:
 
 @api_v1.route("/backtest", methods=["POST"])
 def backtest_enqueue():
-    # Auth is optional — unauthenticated callers use DASHBOARD_AGENT_ID for now.
+    """Enqueue an async backtest run. Auth required.
+
+    Previously auth was optional and the route silently downgraded callers to
+    the dashboard agent — which let any unauthenticated caller exhaust other
+    agents' quotas via JSON body `agent_id`. Now: bearer required, agent_id
+    always derived from the token (body `agent_id` ignored).
+    """
     auth_err = require_auth()
     if auth_err:
-        from polyclaw.storage.schema import DASHBOARD_AGENT_ID
+        return auth_err
 
-        g.agent_id = DASHBOARD_AGENT_ID
+    agent_id = getattr(g, "agent_id", None)
+    if not agent_id:
+        return error_response("auth.missing_agent", "Could not resolve agent from token", status=401)
 
     payload = request.json or {}
-    agent_id = getattr(g, "agent_id", None) or payload.get("agent_id", "__dashboard__")
     strategy = str(payload.get("strategy", "")).strip()
     markets = payload.get("markets") or []
 

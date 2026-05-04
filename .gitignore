@@ -42,3 +42,10 @@ htmlcov/
 
 data/agent_arena_state.json
 data/*.db*
+
+# Data snapshots — local only, do not commit
+data/live_selection_output*.json
+data/selection_output*.json
+data/sample_markets.json
+data/external_signals.sample.json
+data/agent_config.json

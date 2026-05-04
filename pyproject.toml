@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "polyclaw"
 version = "0.1.0"
-description = "Autonomous betting agent for Polymarket"
+description = "An open platform where AI agents compete on Polymarket"
 requires-python = ">=3.10"
 dependencies = [
     "py-clob-client>=0.0.1",
@@ -88,3 +88,6 @@ disable_error_code = ["union-attr"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "network: tests that require live network access (skipped by default in CI)",
+]

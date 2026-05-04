@@ -88,6 +88,15 @@ def index():
     return send_from_directory(str(directory), "index.html")
 
 
+@app.route("/healthz")
+def healthz():
+    """Liveness probe — does NOT touch the database.
+
+    For deeper checks (DB roundtrip, queue depth) see /api/v1/health (TODO).
+    """
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route("/api/markets")
 def search_markets():
     q = request.args.get("q", "")
@@ -215,10 +224,26 @@ def get_portfolio():
 
 @app.route("/api/reset", methods=["POST"])
 def reset_portfolio():
-    from polyclaw.config import settings
-    from polyclaw.storage.schema import DASHBOARD_AGENT_ID
+    """Reset the caller's paper-trading portfolio.
 
-    get_trading_service().reset(DASHBOARD_AGENT_ID)
+    Auth-required: scoped to the bearer-token's agent. Without auth this would
+    let any caller wipe the dashboard agent's state — which used to be the
+    behavior. Now: 401 if no token, scoped to g.agent_id otherwise.
+    """
+    from flask import g
+
+    from polyclaw.config import settings
+    from polyclaw.web.api_v1 import require_auth
+
+    auth_err = require_auth()
+    if auth_err:
+        return auth_err
+
+    agent_id = getattr(g, "agent_id", None)
+    if not agent_id:
+        return jsonify({"error": {"code": "auth.missing_agent", "message": "Could not resolve agent"}}), 401
+
+    get_trading_service().reset(agent_id)
     get_dashboard_service().invalidate_paper_state()
     return jsonify({"message": "Paper trading reset", "balance": settings.paper_starting_balance})
 
@@ -261,64 +286,23 @@ def list_backtest_strategies():
 
 @app.route("/api/backtest", methods=["POST"])
 def run_backtest():
-    """Run a backtest with historical data."""
-    from polyclaw.backtest.data_loader import DataLoader
-    from polyclaw.backtest.engine import BacktestEngine
-    from polyclaw.backtest.strategies import get_strategy
+    """[DEPRECATED] Synchronous backtest — superseded by /api/v1/backtest.
 
-    req = request.json or {}
-    strategy_name = req.get("strategy")
-    markets_query = req.get("markets")
+    The legacy route ran the full BacktestEngine inside a single Flask request
+    with no auth and no quota. On Vercel this guaranteed a 60-second timeout
+    on any non-trivial run, and it allowed unauthenticated callers to consume
+    arbitrary CPU. Use the async queue instead:
 
-    if not strategy_name or not markets_query:
-        return jsonify({"error": "strategy and markets are required"}), 400
-
-    try:
-        strategy = get_strategy(strategy_name)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-    strategy.configure(req.get("params", {}))
-
-    loader = DataLoader()
-    market_data = loader.load_markets_by_query(
-        markets_query,
-        fidelity=req.get("fidelity", 60),
-        limit=req.get("max_markets", 5),
-    )
-
-    if not market_data:
-        return jsonify({"error": f"No markets found for: {markets_query!r}"}), 404
-
-    engine = BacktestEngine(
-        starting_cash=req.get("cash", 10_000.0),
-        fee_bps=req.get("fee_bps", 0),
-        slippage_pct=req.get("slippage_pct", 0.005),
-    )
-    result = engine.run(strategy, market_data)
-
-    # Cap equity curve to 500 points for frontend performance
-    curve = result.equity_curve
-    if len(curve) > 500:
-        step = len(curve) // 500
-        curve = curve[::step] + [curve[-1]]
-
-    return jsonify(
-        {
-            "backtest_id": result.backtest_id,
-            "strategy_name": result.strategy_name,
-            "starting_cash": result.starting_cash,
-            "ending_cash": result.ending_cash,
-            "ending_equity": result.ending_equity,
-            "fee_bps": result.fee_bps,
-            "fidelity": result.fidelity,
-            "markets": result.markets,
-            "strategy_params": result.strategy_params,
-            "metrics": result.metrics.model_dump(),
-            "trades": [t.model_dump() for t in result.trades],
-            "equity_curve": [e.model_dump() for e in curve],
+        POST /api/v1/backtest         # enqueue
+        GET  /api/v1/backtest/<id>    # poll
+    """
+    return jsonify({
+        "error": {
+            "code": "deprecated",
+            "message": "POST /api/backtest is deprecated. Use POST /api/v1/backtest (async queue).",
+            "docs": "https://github.com/adityabansal98/PolyClaw-Agentic#api-surface",
         }
-    )
+    }), 410
 
 
 # ── /api/arena/* — 410 Gone ────────────────────────────────────────────────
