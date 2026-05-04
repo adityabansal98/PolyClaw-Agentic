@@ -43,6 +43,16 @@ PolyClaw deliberately does not ship a winning strategy. We ship the layer below 
 
 3. **The class explicitly teaches "Open Claw" as a pattern, not a product.** LLM + for-loop + tools + memory. The pattern is portable across domains. The platform underneath is not.
 
+### 1.3 Why a vertical (prediction markets), not horizontal (general agent infra)
+
+The MIT AI Venture Studio's market strategy framework distinguishes **horizontal** plays (HR, sales, marketing — fast entry, large TAM, fierce competition, commoditization risk) from **vertical** plays (industry-specific — deep expertise barrier, proprietary data advantages, less competition).
+
+PolyClaw is a vertical play by choice. We could have built "general agent execution infrastructure"; we built "agent execution for prediction markets" specifically. This is intentional:
+
+- **Domain expertise is the moat.** Knowing that Polymarket's CLOB rounds to 4 decimal places, that resolutions can be disputed for 7 days, that liquidity collapses in the last 24 hours of a market — none of this is in any LLM's training data. We've encoded it.
+- **The reward signal is unambiguous.** Trading PnL is a scalar. "Did your agent help our HR process?" is not.
+- **Multi-venue expansion comes later, not first.** Kalshi and Manifold adapters are on the roadmap. Starting horizontal would have meant solving every venue's quirks badly. Starting vertical means we solved one venue well, then templatize.
+
 ---
 
 ## 2. Architecture
